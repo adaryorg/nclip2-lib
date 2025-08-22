@@ -1,0 +1,17 @@
+.{
+    .name = .nclip2_lib,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.14.1",
+    .fingerprint = 0xc5c3461b8473cad6,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+        "examples",
+        "tests",
+        "README.md",
+        "LICENSE",
+    },
+}
