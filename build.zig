@@ -76,6 +76,30 @@ pub fn build(b: *std.Build) void {
     
     b.installArtifact(monitor_exe);
 
+    // Write test executable
+    const write_test_exe = b.addExecutable(.{
+        .name = "clipboard-write-test",
+        .root_source_file = b.path("examples/write_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    write_test_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(write_test_exe, target, b);
+    b.installArtifact(write_test_exe);
+
+    // Image test executable
+    const image_test_exe = b.addExecutable(.{
+        .name = "clipboard-image-test",
+        .root_source_file = b.path("examples/image_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    image_test_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(image_test_exe, target, b);
+    b.installArtifact(image_test_exe);
+
     // Run commands
     const run_simple_cmd = b.addRunArtifact(simple_exe);
     
@@ -94,6 +118,24 @@ pub fn build(b: *std.Build) void {
     
     const run_monitor_step = b.step("run-monitor", "Run the event-based clipboard monitor");
     run_monitor_step.dependOn(&run_monitor_cmd.step);
+
+    const run_write_test_cmd = b.addRunArtifact(write_test_exe);
+    
+    if (b.args) |args| {
+        run_write_test_cmd.addArgs(args);
+    }
+    
+    const run_write_test_step = b.step("run-write-test", "Run the clipboard write test");
+    run_write_test_step.dependOn(&run_write_test_cmd.step);
+
+    const run_image_test_cmd = b.addRunArtifact(image_test_exe);
+    
+    if (b.args) |args| {
+        run_image_test_cmd.addArgs(args);
+    }
+    
+    const run_image_test_step = b.step("run-image-test", "Run the clipboard image test");
+    run_image_test_step.dependOn(&run_image_test_cmd.step);
 
     // Tests
     const lib_tests = b.addTest(.{

@@ -20,6 +20,30 @@ Cross-platform clipboard library for Zig supporting Wayland, X11, and macOS.
 
 ## Usage
 
+### Main Functions
+
+#### 1. One-shot Reading (Recommended)
+```zig
+const data = try clipboard.readClipboardData(allocator);
+defer data.deinit();
+const text = try data.asText();
+```
+
+#### 2. Writing to Clipboard
+```zig
+var clip = try clipboard.Clipboard.init(allocator);
+defer clip.deinit();
+try clip.write("Hello clipboard!", .text);
+```
+
+#### 3. Reading Specific Format
+```zig
+var clip = try clipboard.Clipboard.init(allocator);
+defer clip.deinit();
+const data = try clip.read(.text);
+defer data.deinit();
+```
+
 ### Basic Example
 
 ```zig

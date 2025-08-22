@@ -62,136 +62,106 @@ pub const ClipboardData = struct {
 /// Callback function type for clipboard change monitoring
 pub const ClipboardChangeCallback = *const fn (data: ClipboardData) void;
 
-const Backend = switch (builtin.os.tag) {
-    .linux => if (@import("builtin").link_libc) 
-        @import("backends/linux.zig") 
-    else 
-        @import("backends/fallback.zig"),
-    .macos => @import("backends/macos.zig"),
-    else => @import("backends/fallback.zig"),
-};
+fn getBackendModule() type {
+    return switch (builtin.os.tag) {
+        .linux => if (@import("builtin").link_libc) 
+            @import("backends/linux.zig") 
+        else 
+            @import("backends/fallback.zig"),
+        .macos => @import("backends/macos.zig"),
+        else => @import("backends/fallback.zig"),
+    };
+}
+
+const Backend = getBackendModule();
 
 /// Cross-platform clipboard manager providing access to system clipboard
 pub const Clipboard = struct {
     backend: Backend.ClipboardBackend,
     allocator: std.mem.Allocator,
     
-    /// Initialize a new clipboard instance for the current platform
     pub fn init(allocator: std.mem.Allocator) !Clipboard {
-        const backend = try Backend.ClipboardBackend.init(allocator);
-        
         return Clipboard{
-            .backend = backend,
+            .backend = try Backend.ClipboardBackend.init(allocator),
             .allocator = allocator,
         };
     }
     
-    /// Clean up clipboard resources
     pub fn deinit(self: *Clipboard) void {
         self.backend.deinit();
     }
     
-    /// Read clipboard data in the specified format
     pub fn read(self: *Clipboard, format: ClipboardFormat) !ClipboardData {
         return self.backend.read(format);
     }
     
-    /// Write data to clipboard in the specified format
     pub fn write(self: *Clipboard, data: []const u8, format: ClipboardFormat) !void {
         return self.backend.write(data, format);
     }
     
-    /// Start monitoring clipboard changes (calls callback when clipboard changes)
     pub fn startMonitoring(self: *Clipboard, callback: ClipboardChangeCallback) !void {
         return self.backend.startMonitoring(callback);
     }
     
-    /// Stop monitoring clipboard changes
     pub fn stopMonitoring(self: *Clipboard) void {
         self.backend.stopMonitoring();
     }
     
-    /// Check if the specified format is available in the clipboard
     pub fn isAvailable(self: *Clipboard, format: ClipboardFormat) bool {
         return self.backend.isAvailable(format);
     }
     
-    /// Get a list of all available clipboard formats (caller owns returned memory)
     pub fn getAvailableFormats(self: *Clipboard, allocator: std.mem.Allocator) ![]ClipboardFormat {
         return self.backend.getAvailableFormats(allocator);
     }
     
-    /// Clear the clipboard contents
     pub fn clear(self: *Clipboard) !void {
         return self.backend.clear();
     }
     
-    /// Process pending clipboard events (no-op on most platforms)
     pub fn processEvents(self: *Clipboard) void {
         return self.backend.processEvents();
     }
 };
 
-fn getBackendModule() type {
-    return switch (builtin.os.tag) {
-        .linux => @import("backends/linux.zig"),
-        .macos => @import("backends/macos.zig"),
-        else => @import("backends/fallback.zig"),
-    };
-}
-
-/// Read clipboard data once and exit (preferred method for single reads)
-/// Uses single connection for both format detection and data reading.
-/// This is more efficient than creating a Clipboard instance for one-time reads.
 pub fn readClipboardData(allocator: std.mem.Allocator) !ClipboardData {
-    // Create single connection for entire operation
-    const backend_module = getBackendModule();
+    if (@hasDecl(Backend, "getClipboardDataAuto")) {
+        return Backend.getClipboardDataAuto(allocator);
+    }
     
-    // Use backend-specific single-connection function if available
-    if (@hasDecl(backend_module, "getClipboardDataAuto")) {
-        return backend_module.getClipboardDataAuto(allocator);
-    } else {
-        // Fallback to old method
-        var clip = try Clipboard.init(allocator);
-        defer clip.deinit();
-        
-        clip.processEvents();
-        
-        const formats = try clip.getAvailableFormats(allocator);
-        defer allocator.free(formats);
-        
-        if (formats.len == 0) {
-            return ClipboardError.NoData;
-        }
-        
-        const priority_formats = [_]ClipboardFormat{ .text, .html, .image, .rtf };
-        
-        for (priority_formats) |preferred_format| {
-            for (formats) |available_format| {
-                if (available_format == preferred_format) {
-                    return clip.read(preferred_format) catch continue;
-                }
+    var clip = try Clipboard.init(allocator);
+    defer clip.deinit();
+    
+    clip.processEvents();
+    
+    const formats = try clip.getAvailableFormats(allocator);
+    defer allocator.free(formats);
+    
+    if (formats.len == 0) {
+        return ClipboardError.NoData;
+    }
+    
+    const priority_formats = [_]ClipboardFormat{ .text, .html, .image, .rtf };
+    
+    for (priority_formats) |preferred_format| {
+        for (formats) |available_format| {
+            if (available_format == preferred_format) {
+                return clip.read(preferred_format) catch continue;
             }
         }
-        
-        return clip.read(formats[0]);
     }
+    
+    return clip.read(formats[0]);
 }
 
-/// Get list of available clipboard formats (caller owns returned memory)
-/// Use this to determine what formats are currently available in the clipboard.
 pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]ClipboardFormat {
-    // Use backend-specific standalone function for fresh connection
-    const backend_module = getBackendModule();
-    
-    if (@hasDecl(backend_module, "getAvailableClipboardFormats")) {
-        return backend_module.getAvailableClipboardFormats(allocator);
-    } else {
-        // Fallback to old method
-        var clip = try Clipboard.init(allocator);
-        defer clip.deinit();
-        return clip.getAvailableFormats(allocator);
+    if (@hasDecl(Backend, "getAvailableClipboardFormats")) {
+        return Backend.getAvailableClipboardFormats(allocator);
     }
+    
+    var clip = try Clipboard.init(allocator);
+    defer clip.deinit();
+    return clip.getAvailableFormats(allocator);
 }
 
 test "clipboard basic functionality" {

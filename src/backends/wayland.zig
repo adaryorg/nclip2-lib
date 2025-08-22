@@ -6,6 +6,9 @@ const c = @cImport({
     @cInclude("wlr_protocol.h");
     @cInclude("unistd.h");
     @cInclude("string.h");
+    @cInclude("fcntl.h");
+    @cInclude("stdio.h");
+    @cInclude("stdlib.h");
 });
 
 const DeviceType = enum {
@@ -199,6 +202,11 @@ pub const WaylandClipboard = struct {
             self.allocator.free(data);
         }
         
+        // Clean up data_result if it exists
+        if (self.data_result) |*data| {
+            data.deinit();
+        }
+        
         self.available_formats.deinit();
         
         if (self.data_device) |device| {
@@ -313,10 +321,6 @@ pub const WaylandClipboard = struct {
         self.own_clipboard_data = try self.allocator.dupe(u8, data);
         self.own_clipboard_format = format;
         
-        const mime_type = format.mimeType();
-        const mime_cstr = try self.allocator.dupeZ(u8, mime_type);
-        defer self.allocator.free(mime_cstr);
-
         switch (self.device_type) {
             .wl_data_device => {
                 const source = c.wl_data_device_manager_create_data_source(self.data_device_manager);
@@ -325,7 +329,30 @@ pub const WaylandClipboard = struct {
                     return clipboard.ClipboardError.WriteFailed;
                 }
                 
-                c.wl_data_source_offer(source, mime_cstr.ptr);
+                // Offer multiple MIME types for text like wl-copy does
+                if (format == .text) {
+                    const text_plain = try self.allocator.dupeZ(u8, "text/plain");
+                    defer self.allocator.free(text_plain);
+                    const text_plain_utf8 = try self.allocator.dupeZ(u8, "text/plain;charset=utf-8");
+                    defer self.allocator.free(text_plain_utf8);
+                    const text_caps = try self.allocator.dupeZ(u8, "TEXT");
+                    defer self.allocator.free(text_caps);
+                    const string_caps = try self.allocator.dupeZ(u8, "STRING");
+                    defer self.allocator.free(string_caps);
+                    const utf8_string = try self.allocator.dupeZ(u8, "UTF8_STRING");
+                    defer self.allocator.free(utf8_string);
+                    
+                    c.wl_data_source_offer(source, text_plain.ptr);
+                    c.wl_data_source_offer(source, text_plain_utf8.ptr);
+                    c.wl_data_source_offer(source, text_caps.ptr);
+                    c.wl_data_source_offer(source, string_caps.ptr);
+                    c.wl_data_source_offer(source, utf8_string.ptr);
+                } else {
+                    const mime_type = format.mimeType();
+                    const mime_cstr = try self.allocator.dupeZ(u8, mime_type);
+                    defer self.allocator.free(mime_cstr);
+                    c.wl_data_source_offer(source, mime_cstr.ptr);
+                }
                 
                 const source_listener = c.wl_data_source_listener{
                     .target = dataSourceTarget,
@@ -357,7 +384,30 @@ pub const WaylandClipboard = struct {
                     return clipboard.ClipboardError.WriteFailed;
                 }
                 
-                c.zwlr_data_control_source_v1_offer(source, mime_cstr.ptr);
+                // Offer multiple MIME types for text like wl-copy does
+                if (format == .text) {
+                    const text_plain = try self.allocator.dupeZ(u8, "text/plain");
+                    defer self.allocator.free(text_plain);
+                    const text_plain_utf8 = try self.allocator.dupeZ(u8, "text/plain;charset=utf-8");
+                    defer self.allocator.free(text_plain_utf8);
+                    const text_caps = try self.allocator.dupeZ(u8, "TEXT");
+                    defer self.allocator.free(text_caps);
+                    const string_caps = try self.allocator.dupeZ(u8, "STRING");
+                    defer self.allocator.free(string_caps);
+                    const utf8_string = try self.allocator.dupeZ(u8, "UTF8_STRING");
+                    defer self.allocator.free(utf8_string);
+                    
+                    c.zwlr_data_control_source_v1_offer(source, text_plain.ptr);
+                    c.zwlr_data_control_source_v1_offer(source, text_plain_utf8.ptr);
+                    c.zwlr_data_control_source_v1_offer(source, text_caps.ptr);
+                    c.zwlr_data_control_source_v1_offer(source, string_caps.ptr);
+                    c.zwlr_data_control_source_v1_offer(source, utf8_string.ptr);
+                } else {
+                    const mime_type = format.mimeType();
+                    const mime_cstr = try self.allocator.dupeZ(u8, mime_type);
+                    defer self.allocator.free(mime_cstr);
+                    c.zwlr_data_control_source_v1_offer(source, mime_cstr.ptr);
+                }
                 
                 const wlr_source_listener = c.zwlr_data_control_source_v1_listener{
                     .send = wlrDataSourceSend,
@@ -384,6 +434,9 @@ pub const WaylandClipboard = struct {
         self.we_own_selection = true;
         
         _ = c.wl_display_roundtrip(self.display);
+        
+        // Fork to background like wl-copy does
+        try self.forkToBackground();
     }
     
     pub fn clear(self: *WaylandClipboard) !void {
@@ -481,6 +534,44 @@ pub const WaylandClipboard = struct {
         }
         
         return try allocator.dupe(u8, data_list.items);
+    }
+    
+    fn forkToBackground(self: *WaylandClipboard) !void {
+        const pid = std.posix.fork() catch |err| switch (err) {
+            error.SystemResources => return,
+            else => return,
+        };
+        
+        if (pid > 0) {
+            // Parent process - return to caller normally
+            return;
+        }
+        
+        // Child process - redirect stdio and enter event loop
+        const dev_null = std.fs.openFileAbsolute("/dev/null", .{}) catch {
+            // If we can't open /dev/null, just close stdin/stdout
+            std.posix.close(0);
+            std.posix.close(1);
+            self.backgroundEventLoop();
+        };
+        defer dev_null.close();
+        
+        _ = std.posix.dup2(dev_null.handle, 0) catch {};
+        _ = std.posix.dup2(dev_null.handle, 1) catch {};
+        
+        _ = std.posix.chdir("/") catch {};
+        
+        self.backgroundEventLoop();
+    }
+    
+    fn backgroundEventLoop(self: *WaylandClipboard) noreturn {
+        while (true) {
+            const result = c.wl_display_dispatch(self.display);
+            if (result < 0) {
+                // Connection lost, exit
+                c.exit(1);
+            }
+        }
     }
     
     fn triggerMonitorCallback(self: *WaylandClipboard) void {
@@ -596,15 +687,21 @@ const WriteContext = struct {
     parent: *WaylandClipboard,
     
     fn deinit(self: *WriteContext) void {
-        // Remove self from parent's tracking list
-        for (self.parent.active_write_contexts.items, 0..) |context, i| {
-            if (context == self) {
-                _ = self.parent.active_write_contexts.swapRemove(i);
-                break;
+        // Safety check: only free if data is valid
+        if (self.data.len > 0) {
+            self.allocator.free(self.data);
+        }
+        
+        // Remove self from parent's tracking list safely
+        if (self.parent.active_write_contexts.items.len > 0) {
+            for (self.parent.active_write_contexts.items, 0..) |context, i| {
+                if (context == self) {
+                    _ = self.parent.active_write_contexts.swapRemove(i);
+                    break;
+                }
             }
         }
         
-        self.allocator.free(self.data);
         self.allocator.destroy(self);
     }
 };
@@ -716,18 +813,33 @@ fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, m
 // WLR Data Source callbacks
 fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1, mime_type: [*c]const u8, fd: i32) callconv(.C) void {
     _ = source; _ = mime_type;
+    
+    if (data == null) {
+        _ = c.close(fd);
+        return;
+    }
+    
     const context: *WriteContext = @ptrCast(@alignCast(data));
     
-    _ = c.write(fd, context.data.ptr, context.data.len);
-    _ = c.close(fd);
+    // Unset O_NONBLOCK like wl-copy does
+    _ = c.fcntl(fd, c.F_SETFL, @as(c_int, 0));
     
-    context.deinit();
+    // Use fdopen/fwrite like wl-copy does (binary mode for all data)
+    const file = c.fdopen(fd, "wb");
+    if (file == null) {
+        _ = c.close(fd);
+        return;
+    }
+    
+    _ = c.fwrite(context.data.ptr, 1, context.data.len, file);
+    _ = c.fclose(file); // This also closes the fd
 }
 
 fn wlrDataSourceCancelled(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1) callconv(.C) void {
-    _ = source;
-    const context: *WriteContext = @ptrCast(@alignCast(data));
-    context.deinit();
+    _ = source; _ = data;
+    
+    // Exit immediately like wl-copy does - no cleanup needed since process exits
+    c.exit(0);
 }
 
 // Standard Wayland Data Device callbacks
@@ -836,18 +948,33 @@ fn dataSourceTarget(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*
 
 fn dataSourceSend(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.C) void {
     _ = source; _ = mime_type;
+    
+    if (data == null) {
+        _ = c.close(fd);
+        return;
+    }
+    
     const context: *WriteContext = @ptrCast(@alignCast(data));
     
-    _ = c.write(fd, context.data.ptr, context.data.len);
-    _ = c.close(fd);
+    // Unset O_NONBLOCK like wl-copy does
+    _ = c.fcntl(fd, c.F_SETFL, @as(c_int, 0));
     
-    context.deinit();
+    // Use fdopen/fwrite like wl-copy does (binary mode for all data)
+    const file = c.fdopen(fd, "wb");
+    if (file == null) {
+        _ = c.close(fd);
+        return;
+    }
+    
+    _ = c.fwrite(context.data.ptr, 1, context.data.len, file);
+    _ = c.fclose(file); // This also closes the fd
 }
 
 fn dataSourceCancelled(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.C) void {
-    _ = source;
-    const context: *WriteContext = @ptrCast(@alignCast(data));
-    context.deinit();
+    _ = source; _ = data;
+    
+    // Exit immediately like wl-copy does - no cleanup needed since process exits
+    c.exit(0);
 }
 
 fn dataSourceDndDropPerformed(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.C) void {
