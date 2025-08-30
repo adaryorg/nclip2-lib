@@ -172,7 +172,7 @@ pub const ClipboardError = error{
 - **Foundation framework**: For Objective-C runtime
 
 ### Build Dependencies
-- **Zig 0.13+**: Minimum supported version
+- **Zig 0.14.1+**: Minimum supported version
 
 ## Implementation Details
 
