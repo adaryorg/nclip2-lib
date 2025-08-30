@@ -16,7 +16,7 @@ Cross-platform clipboard library for Zig supporting Wayland, X11, and macOS.
 
 | Platform | Backend | Status | Notes |
 |----------|---------|--------|-------|
-| Linux (Wayland) | libwayland-client + wlr-data-control | Fully Supported | Event-based monitoring available |
+| Linux (Wayland) | libwayland-client + wlr-data-control | Fully Supported | Background clipboard operations |
 | Linux (X11) | libX11 | Fully Supported | Background serving with fork |
 | macOS | AppKit/Foundation + pbcopy/pbpaste | Fully Supported | Text and image clipboard support |
 | Other | Fallback | Unsupported | Returns UnsupportedPlatform error |
@@ -54,36 +54,6 @@ pub fn main() !void {
         .rtf => {
             std.log.info("RTF: {} bytes", .{data.data.len});
         },
-    }
-}
-```
-
-### Wayland Event-Based Monitoring
-```zig
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    
-    // Wayland-only: true event-based monitoring
-    var monitor = clipboard.startWaylandEventMonitoring(allocator) catch |err| {
-        switch (err) {
-            clipboard.ClipboardError.UnsupportedPlatform => {
-                std.log.err("This only works on Wayland");
-                return;
-            },
-            else => return err,
-        }
-    };
-    defer monitor.deinit();
-    
-    // Block until clipboard changes
-    while (true) {
-        var data = try monitor.waitForClipboardChange();
-        defer data.deinit();
-        
-        const text = data.asText() catch continue;
-        std.log.info("Clipboard changed: {s}", .{text});
     }
 }
 ```
@@ -143,8 +113,6 @@ zig build run-macos-write      # Write text to clipboard
 pub fn readClipboardData(allocator: std.mem.Allocator) !ClipboardData
 pub fn writeClipboardText(allocator: std.mem.Allocator, text: []const u8) !void
 
-// Wayland-specific event monitoring (fails on X11 with UnsupportedPlatform)
-pub fn startWaylandEventMonitoring(allocator: std.mem.Allocator) !WaylandEventMonitor
 ```
 
 ### Manual Control API
@@ -192,15 +160,6 @@ pub const ClipboardError = error{
 }
 ```
 
-### Wayland Event Monitor
-
-```zig
-pub const WaylandEventMonitor = struct {
-    pub fn init(allocator: std.mem.Allocator) !WaylandEventMonitor
-    pub fn deinit(self: *WaylandEventMonitor) void
-    pub fn waitForClipboardChange(self: *WaylandEventMonitor) !ClipboardData  // Blocks
-}
-```
 
 ## Dependencies
 
