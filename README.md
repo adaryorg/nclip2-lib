@@ -16,10 +16,10 @@ Cross-platform clipboard library for Zig supporting Wayland, X11, and macOS.
 
 | Platform | Backend | Status | Notes |
 |----------|---------|--------|-------|
-| Linux (Wayland) | libwayland-client + wlr-data-control | ✅ Fully Supported | Event-based monitoring available |
-| Linux (X11) | libX11 | ✅ Fully Supported | Background serving with fork |
-| macOS | AppKit/Foundation + pbcopy/pbpaste | ✅ Fully Supported | Text and image clipboard support |
-| Other | Fallback | ❌ Unsupported | Returns UnsupportedPlatform error |
+| Linux (Wayland) | libwayland-client + wlr-data-control | Fully Supported | Event-based monitoring available |
+| Linux (X11) | libX11 | Fully Supported | Background serving with fork |
+| macOS | AppKit/Foundation + pbcopy/pbpaste | Fully Supported | Text and image clipboard support |
+| Other | Fallback | Unsupported | Returns UnsupportedPlatform error |
 
 ## Quick Start
 
