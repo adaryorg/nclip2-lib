@@ -24,7 +24,7 @@ pub const ClipboardFormat = enum {
     pub fn mimeType(self: ClipboardFormat) []const u8 {
         return switch (self) {
             .text => "text/plain",
-            .image => "image/png",
+            .image => "image/png", 
             .html => "text/html",
             .rtf => "application/rtf",
         };

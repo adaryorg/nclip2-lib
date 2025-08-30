@@ -1,13 +1,12 @@
 const std = @import("std");
 
 fn addPlatformDependencies(step: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, b: *std.Build) void {
-    // Add wlr-data-control protocol implementation
-    step.addCSourceFile(.{ .file = b.path("src/wlr_protocol.c") });
-    step.addIncludePath(b.path("include"));
-    
-    // Platform-specific linking
+    // Platform-specific linking and sources
     switch (target.result.os.tag) {
         .linux => {
+            // Add wlr-data-control protocol implementation for Linux only
+            step.addCSourceFile(.{ .file = b.path("src/wlr_protocol.c") });
+            step.addIncludePath(b.path("include"));
             step.linkLibC();
             step.linkSystemLibrary("wayland-client");
             step.linkSystemLibrary("X11");
@@ -32,8 +31,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/clipboard.zig"),
     });
     
-    // Add include path for wlr protocol headers
-    clipboard_mod.addIncludePath(b.path("include"));
+    // Add include path for wlr protocol headers (Linux only)
+    if (target.result.os.tag == .linux) {
+        clipboard_mod.addIncludePath(b.path("include"));
+    }
 
     // Library for static linking
     const lib = b.addStaticLibrary(.{
@@ -96,7 +97,29 @@ pub fn build(b: *std.Build) void {
     addPlatformDependencies(x11_write_exe, target, b);
     b.installArtifact(x11_write_exe);
 
+    // macOS read example
+    const macos_read_exe = b.addExecutable(.{
+        .name = "macos-read",
+        .root_source_file = b.path("examples/macos_read.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    macos_read_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(macos_read_exe, target, b);
+    b.installArtifact(macos_read_exe);
 
+    // macOS write example
+    const macos_write_exe = b.addExecutable(.{
+        .name = "macos-write",
+        .root_source_file = b.path("examples/macos_write.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    macos_write_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(macos_write_exe, target, b);
+    b.installArtifact(macos_write_exe);
 
 
     // Run commands
@@ -120,6 +143,17 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_x11_write_cmd.addArgs(args);
     const run_x11_write_step = b.step("run-x11-write", "Write text to clipboard via X11");
     run_x11_write_step.dependOn(&run_x11_write_cmd.step);
+
+    const run_macos_read_cmd = b.addRunArtifact(macos_read_exe);
+    if (b.args) |args| run_macos_read_cmd.addArgs(args);
+    const run_macos_read_step = b.step("run-macos-read", "Run the macOS clipboard reader");
+    run_macos_read_step.dependOn(&run_macos_read_cmd.step);
+
+    const run_macos_write_cmd = b.addRunArtifact(macos_write_exe);
+    if (b.args) |args| run_macos_write_cmd.addArgs(args);
+    const run_macos_write_step = b.step("run-macos-write", "Write text to clipboard via macOS");
+    run_macos_write_step.dependOn(&run_macos_write_cmd.step);
+
 
 
     // Tests

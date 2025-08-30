@@ -16,18 +16,30 @@ const DeviceType = enum {
     zwlr_data_control_device,
 };
 
+// Centralized MIME type constants to avoid duplication
+const MIME_TYPES = struct {
+    const TEXT_PLAIN = "text/plain";
+    const TEXT_PLAIN_UTF8 = "text/plain;charset=utf-8";
+    const TEXT_CAPS = "TEXT";
+    const STRING_CAPS = "STRING";
+    const UTF8_STRING = "UTF8_STRING";
+    const TEXT_HTML = "text/html";
+    const APPLICATION_RTF = "application/rtf";
+};
+
+
 fn mimeTypeToFormat(mime_str: []const u8) ?clipboard.ClipboardFormat {
-    if (std.mem.eql(u8, mime_str, "text/plain") or 
-        std.mem.eql(u8, mime_str, "text/plain;charset=utf-8") or
-        std.mem.eql(u8, mime_str, "TEXT") or
-        std.mem.eql(u8, mime_str, "STRING") or
-        std.mem.eql(u8, mime_str, "UTF8_STRING")) {
+    if (std.mem.eql(u8, mime_str, MIME_TYPES.TEXT_PLAIN) or 
+        std.mem.eql(u8, mime_str, MIME_TYPES.TEXT_PLAIN_UTF8) or
+        std.mem.eql(u8, mime_str, MIME_TYPES.TEXT_CAPS) or
+        std.mem.eql(u8, mime_str, MIME_TYPES.STRING_CAPS) or
+        std.mem.eql(u8, mime_str, MIME_TYPES.UTF8_STRING)) {
         return .text;
     } else if (std.mem.startsWith(u8, mime_str, "image/")) {
         return .image;
-    } else if (std.mem.eql(u8, mime_str, "text/html")) {
+    } else if (std.mem.eql(u8, mime_str, MIME_TYPES.TEXT_HTML)) {
         return .html;
-    } else if (std.mem.eql(u8, mime_str, "application/rtf")) {
+    } else if (std.mem.eql(u8, mime_str, MIME_TYPES.APPLICATION_RTF)) {
         return .rtf;
     }
     return null;

@@ -18,7 +18,7 @@ Cross-platform clipboard library for Zig supporting Wayland, X11, and macOS.
 |----------|---------|--------|-------|
 | Linux (Wayland) | libwayland-client + wlr-data-control | ✅ Fully Supported | Event-based monitoring available |
 | Linux (X11) | libX11 | ✅ Fully Supported | Background serving with fork |
-| macOS | AppKit/Foundation | ⚠️ Implemented | Untested |
+| macOS | AppKit/Foundation + pbcopy/pbpaste | ✅ Fully Supported | Text and image clipboard support |
 | Other | Fallback | ❌ Unsupported | Returns UnsupportedPlatform error |
 
 ## Quick Start
@@ -128,7 +128,10 @@ zig build run-x11-write     # Write text to clipboard
 # Wayland examples (works on Wayland sessions)
 zig build run-wayland-read     # Read clipboard every second for 45s  
 zig build run-wayland-write    # Write text to clipboard
-zig build run-wayland-monitor  # True event-based monitoring (blocks until changes)
+
+# macOS examples (works on macOS)
+zig build run-macos-read       # Read clipboard every second for 45s
+zig build run-macos-write      # Write text to clipboard
 ```
 
 ## API Reference
@@ -206,8 +209,9 @@ pub const WaylandEventMonitor = struct {
 - **libX11**: For X11 clipboard protocol
 
 ### macOS
-- **AppKit framework**: For NSPasteboard access
+- **AppKit framework**: For NSPasteboard access and NSImage validation
 - **Foundation framework**: For Objective-C runtime
+- **pbcopy/pbpaste**: Command-line utilities for text operations
 
 ### Build Dependencies
 - **Zig 0.13+**: Minimum supported version
@@ -217,7 +221,8 @@ pub const WaylandEventMonitor = struct {
 ### Format Detection
 - **X11**: Single TARGETS request with priority-based selection (AVIF→WebP→JPEG→PNG for images, UTF8_STRING→text/plain→STRING for text)
 - **Wayland**: Automatic format detection based on available MIME types
-- **Priority Order**: Image formats preferred over text when both available
+- **macOS**: NSPasteboard enumeration with NSImage validation for comprehensive format support
+- **Priority Order**: Text → Image → HTML → RTF (configurable per platform)
 
 ### Clipboard Persistence
 - **X11**: Background fork() process serves clipboard requests until selection lost (xclip-style)
@@ -252,8 +257,8 @@ src/backends/
 
 ## Code Statistics
 - **~3000 LOC** total (including examples and build config)
-- **5 Platform backends**: Linux (Wayland + X11), macOS, Fallback
-- **5 Examples**: Platform-specific read/write + Wayland monitoring
+- **4 Platform backends**: Linux (Wayland + X11), macOS, Fallback
+- **6 Examples**: Platform-specific read/write for X11, Wayland, and macOS
 - **Thread-free**: No internal threading, uses process forking (X11) and event loops (Wayland)
 
 ## License
