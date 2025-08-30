@@ -59,17 +59,6 @@ pub fn build(b: *std.Build) void {
     addPlatformDependencies(wayland_read_exe, target, b);
     b.installArtifact(wayland_read_exe);
 
-    // Wayland event monitoring example
-    const wayland_monitor_exe = b.addExecutable(.{
-        .name = "wayland-monitor",
-        .root_source_file = b.path("examples/wayland_monitor.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    
-    wayland_monitor_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(wayland_monitor_exe, target, b);
-    b.installArtifact(wayland_monitor_exe);
 
     // Wayland write example
     const wayland_write_exe = b.addExecutable(.{
@@ -116,10 +105,6 @@ pub fn build(b: *std.Build) void {
     const run_wayland_read_step = b.step("run-wayland-read", "Run the Wayland clipboard reader");
     run_wayland_read_step.dependOn(&run_wayland_read_cmd.step);
 
-    const run_wayland_monitor_cmd = b.addRunArtifact(wayland_monitor_exe);
-    if (b.args) |args| run_wayland_monitor_cmd.addArgs(args);
-    const run_wayland_monitor_step = b.step("run-wayland-monitor", "Run the Wayland event-based clipboard monitor");
-    run_wayland_monitor_step.dependOn(&run_wayland_monitor_cmd.step);
 
     const run_wayland_write_cmd = b.addRunArtifact(wayland_write_exe);
     if (b.args) |args| run_wayland_write_cmd.addArgs(args);

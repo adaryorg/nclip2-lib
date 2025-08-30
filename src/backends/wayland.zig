@@ -185,6 +185,45 @@ pub const WaylandClipboard = struct {
         self.deinitPartial();
     }
     
+    pub fn deinitWithoutDataCleanup(self: *WaylandClipboard) void {
+        // Clean up any remaining write contexts
+        for (self.active_write_contexts.items) |context| {
+            context.deinit();
+        }
+        self.active_write_contexts.deinit();
+        
+        // Clean up our own clipboard data
+        if (self.own_clipboard_data) |data| {
+            self.allocator.free(data);
+        }
+        
+        // DON'T clean up data_result - caller now owns it
+        
+        self.available_formats.deinit();
+        
+        if (self.data_device) |device| {
+            c.wl_data_device_destroy(device);
+        }
+        if (self.wlr_data_control_device) |device| {
+            c.zwlr_data_control_device_v1_destroy(device);
+        }
+        if (self.seat) |seat| {
+            c.wl_seat_destroy(seat);
+        }
+        if (self.data_device_manager) |manager| {
+            c.wl_data_device_manager_destroy(manager);
+        }
+        if (self.wlr_data_control_manager) |manager| {
+            c.zwlr_data_control_manager_v1_destroy(manager);
+        }
+        if (self.registry) |registry| {
+            c.wl_registry_destroy(registry);
+        }
+        if (self.display) |display| {
+            c.wl_display_disconnect(display);
+        }
+    }
+    
     fn deinitPartial(self: *WaylandClipboard) void {
         // Clean up any remaining write contexts
         for (self.active_write_contexts.items) |context| {
@@ -974,15 +1013,16 @@ pub fn getClipboardDataWithAutoFormat(allocator: std.mem.Allocator) !clipboard.C
     temp_clipboard.init(allocator) catch |err| {
         return err;
     };
+    defer temp_clipboard.deinitWithoutDataCleanup();
     
     // The init() call above already did roundtrip and may have triggered selection events
     // Check if we already got clipboard data during init
     if (temp_clipboard.data_result) |result| {
-        temp_clipboard.deinit();
+        // Move ownership to caller by clearing the result reference
+        temp_clipboard.data_result = null;
         return result;
     }
     if (temp_clipboard.data_error) |err| {
-        temp_clipboard.deinit();
         return err;
     }
     
@@ -990,15 +1030,14 @@ pub fn getClipboardDataWithAutoFormat(allocator: std.mem.Allocator) !clipboard.C
     // Process one event (this will be the automatic selection event)
     if (c.wl_display_dispatch(temp_clipboard.display) >= 0) {
         if (temp_clipboard.data_result) |result| {
-            temp_clipboard.deinit();
+            // Move ownership to caller by clearing the result reference
+            temp_clipboard.data_result = null;
             return result;
         }
         if (temp_clipboard.data_error) |err| {
-            temp_clipboard.deinit();
             return err;
         }
     }
     
-    temp_clipboard.deinit();
     return clipboard.ClipboardError.NoData;
 }
