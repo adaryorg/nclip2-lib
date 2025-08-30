@@ -18,7 +18,7 @@ Cross-platform clipboard library for Zig supporting Wayland, X11, and macOS.
 |----------|---------|--------|-------|
 | Linux (Wayland) | libwayland-client + wlr-data-control | Fully Supported | Background clipboard operations |
 | Linux (X11) | libX11 | Fully Supported | Background serving with fork |
-| macOS | AppKit/Foundation + pbcopy/pbpaste | Fully Supported | Text and image clipboard support |
+| macOS | AppKit/Foundation | Fully Supported | Text and image clipboard support |
 | Other | Fallback | Unsupported | Returns UnsupportedPlatform error |
 
 ## Quick Start
@@ -170,7 +170,6 @@ pub const ClipboardError = error{
 ### macOS
 - **AppKit framework**: For NSPasteboard access and NSImage validation
 - **Foundation framework**: For Objective-C runtime
-- **pbcopy/pbpaste**: Command-line utilities for text operations
 
 ### Build Dependencies
 - **Zig 0.13+**: Minimum supported version
@@ -198,28 +197,6 @@ pub const ClipboardError = error{
 - Compile-time detection for macOS vs other platforms
 - Graceful fallback with clear error messages
 
-## Architecture
-
-```
-src/clipboard.zig (Public API)
-├── Cross-platform functions (readClipboardData, writeClipboardText)
-├── Platform-specific functions (startWaylandEventMonitoring)  
-└── Manual control API (Clipboard struct)
-
-src/backends/
-├── linux.zig (Platform detection and dispatcher)
-│   ├── wayland.zig (Wayland wlr-data-control protocol)
-│   └── x11.zig (X11 selection protocol with fork persistence)
-├── macos.zig (NSPasteboard implementation)
-└── fallback.zig (Unsupported platform stub)
-```
-
-## Code Statistics
-- **~3000 LOC** total (including examples and build config)
-- **4 Platform backends**: Linux (Wayland + X11), macOS, Fallback
-- **6 Examples**: Platform-specific read/write for X11, Wayland, and macOS
-- **Thread-free**: No internal threading, uses process forking (X11) and event loops (Wayland)
-
 ## License
 
-MIT License
+Released under the MIT License
