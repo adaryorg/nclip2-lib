@@ -34,26 +34,6 @@ pub const ClipboardBackend = struct {
         return clipboard.ClipboardError.UnsupportedPlatform;
     }
     
-    pub fn startMonitoring(self: *ClipboardBackend, callback: clipboard.ClipboardChangeCallback) !void {
-        _ = self;
-        _ = callback;
-        return clipboard.ClipboardError.UnsupportedPlatform;
-    }
-    
-    pub fn stopMonitoring(self: *ClipboardBackend) void {
-        _ = self;
-    }
-    
-    pub fn isAvailable(self: *ClipboardBackend, format: clipboard.ClipboardFormat) bool {
-        _ = self;
-        _ = format;
-        return false;
-    }
-    
-    pub fn getAvailableFormats(self: *ClipboardBackend, allocator: std.mem.Allocator) ![]clipboard.ClipboardFormat {
-        _ = self;
-        return try allocator.alloc(clipboard.ClipboardFormat, 0);
-    }
     
     pub fn clear(self: *ClipboardBackend) !void {
         _ = self;

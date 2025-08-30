@@ -67,7 +67,10 @@ pub const ClipboardBackend = struct {
             },
             .x11 => {
                 const backend_ptr = allocator.create(x11.X11Clipboard) catch return clipboard.ClipboardError.OutOfMemory;
-                backend_ptr.* = try x11.X11Clipboard.init(allocator);
+                backend_ptr.* = x11.X11Clipboard.init(allocator) catch |err| {
+                    allocator.destroy(backend_ptr);
+                    return err;
+                };
                 x11_backend = backend_ptr;
             },
             .unknown => {
@@ -114,44 +117,7 @@ pub const ClipboardBackend = struct {
         return clipboard.ClipboardError.UnsupportedPlatform;
     }
     
-    pub fn startMonitoring(self: *ClipboardBackend, callback: clipboard.ClipboardChangeCallback) !void {
-        if (self.wayland_backend) |backend| {
-            return backend.startMonitoring(callback);
-        }
-        if (self.x11_backend) |backend| {
-            return backend.startMonitoring(callback);
-        }
-        return clipboard.ClipboardError.UnsupportedPlatform;
-    }
     
-    pub fn stopMonitoring(self: *ClipboardBackend) void {
-        if (self.wayland_backend) |backend| {
-            backend.stopMonitoring();
-        }
-        if (self.x11_backend) |backend| {
-            backend.stopMonitoring();
-        }
-    }
-    
-    pub fn isAvailable(self: *ClipboardBackend, format: clipboard.ClipboardFormat) bool {
-        if (self.wayland_backend) |backend| {
-            return backend.isAvailable(format);
-        }
-        if (self.x11_backend) |backend| {
-            return backend.isAvailable(format);
-        }
-        return false;
-    }
-    
-    pub fn getAvailableFormats(self: *ClipboardBackend, allocator: std.mem.Allocator) ![]clipboard.ClipboardFormat {
-        if (self.wayland_backend) |backend| {
-            return backend.getAvailableFormats(allocator);
-        }
-        if (self.x11_backend) |backend| {
-            return backend.getAvailableFormats(allocator);
-        }
-        return clipboard.ClipboardError.UnsupportedPlatform;
-    }
     
     pub fn clear(self: *ClipboardBackend) !void {
         if (self.wayland_backend) |backend| {
@@ -178,5 +144,26 @@ pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]clipboard.C
 
 // Single-connection function that gets formats and data with automatic format detection
 pub fn getClipboardDataAuto(allocator: std.mem.Allocator) !clipboard.ClipboardData {
-    return wayland.getClipboardDataWithAutoFormat(allocator);
+    // Detect platform and use appropriate backend
+    const platform_type = try detectPlatform();
+    
+    switch (platform_type) {
+        .wayland => {
+            return wayland.getClipboardDataWithAutoFormat(allocator);
+        },
+        .x11 => {
+            // For X11, use the optimized readBestFormat method
+            var backend = try ClipboardBackend.init(allocator);
+            defer backend.deinit();
+            
+            if (backend.x11_backend) |x11_backend| {
+                return x11_backend.readBestFormat();
+            }
+            
+            return clipboard.ClipboardError.UnsupportedPlatform;
+        },
+        .unknown => {
+            return clipboard.ClipboardError.UnsupportedPlatform;
+        },
+    }
 }

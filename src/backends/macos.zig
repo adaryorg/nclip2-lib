@@ -17,9 +17,6 @@ pub fn detectPlatform() PlatformType {
 
 pub const ClipboardBackend = struct {
     allocator: std.mem.Allocator,
-    monitoring: bool,
-    monitor_callback: ?clipboard.ClipboardChangeCallback,
-    last_change_count: i64,
     
     pub fn init(allocator: std.mem.Allocator) !ClipboardBackend {
         // Initialize Objective-C runtime
@@ -30,9 +27,6 @@ pub const ClipboardBackend = struct {
         
         return ClipboardBackend{
             .allocator = allocator,
-            .monitoring = false,
-            .monitor_callback = null,
-            .last_change_count = -1,
         };
     }
     
@@ -235,63 +229,6 @@ pub const ClipboardBackend = struct {
         }
     }
     
-    pub fn startMonitoring(self: *ClipboardBackend, callback: clipboard.ClipboardChangeCallback) !void {
-        self.monitor_callback = callback;
-        self.monitoring = true;
-        
-        // Get initial change count
-        const NSPasteboard = objc_getClass("NSPasteboard");
-        const generalPasteboard = objc_msgSend(NSPasteboard, sel_registerName("generalPasteboard"));
-        self.last_change_count = @intCast(objc_msgSend(generalPasteboard, sel_registerName("changeCount")));
-        
-        // Start monitoring thread
-        const thread = try std.Thread.spawn(.{}, monitorThread, .{self});
-        thread.detach();
-    }
-    
-    pub fn stopMonitoring(self: *ClipboardBackend) void {
-        self.monitoring = false;
-        self.monitor_callback = null;
-    }
-    
-    pub fn isAvailable(self: *ClipboardBackend, format: clipboard.ClipboardFormat) bool {
-        _ = self;
-        
-        const NSPasteboard = objc_getClass("NSPasteboard");
-        const generalPasteboard = objc_msgSend(NSPasteboard, sel_registerName("generalPasteboard"));
-        
-        const type_string = switch (format) {
-            .text => objc_msgSend(objc_getClass("NSPasteboardTypeString"), sel_registerName("string")),
-            .image => objc_msgSend(objc_getClass("NSPasteboardTypePNG"), sel_registerName("string")),
-            .html => objc_msgSend(objc_getClass("NSPasteboardTypeHTML"), sel_registerName("string")),
-            .rtf => objc_msgSend(objc_getClass("NSPasteboardTypeRTF"), sel_registerName("string")),
-        };
-        
-        const available_type = objc_msgSend(generalPasteboard, sel_registerName("availableTypeFromArray:"), 
-                                          objc_msgSend(objc_getClass("NSArray"), sel_registerName("arrayWithObject:"), type_string));
-        
-        return available_type != null;
-    }
-    
-    pub fn getAvailableFormats(self: *ClipboardBackend, allocator: std.mem.Allocator) ![]clipboard.ClipboardFormat {
-        var formats = std.ArrayList(clipboard.ClipboardFormat).init(allocator);
-        defer formats.deinit();
-        
-        if (self.isAvailable(.text)) {
-            try formats.append(.text);
-        }
-        if (self.isAvailable(.image)) {
-            try formats.append(.image);
-        }
-        if (self.isAvailable(.html)) {
-            try formats.append(.html);
-        }
-        if (self.isAvailable(.rtf)) {
-            try formats.append(.rtf);
-        }
-        
-        return try allocator.dupe(clipboard.ClipboardFormat, formats.items);
-    }
     
     pub fn clear(self: *ClipboardBackend) !void {
         _ = self;
@@ -307,31 +244,6 @@ pub const ClipboardBackend = struct {
         _ = self;
     }
     
-    fn monitorThread(self: *ClipboardBackend) void {
-        const NSPasteboard = objc_getClass("NSPasteboard");
-        const generalPasteboard = objc_msgSend(NSPasteboard, sel_registerName("generalPasteboard"));
-        
-        while (self.monitoring) {
-            const current_change_count: i64 = @intCast(objc_msgSend(generalPasteboard, sel_registerName("changeCount")));
-            
-            if (current_change_count != self.last_change_count) {
-                self.last_change_count = current_change_count;
-                
-                if (self.monitor_callback != null) {
-                    // Try to read the clipboard data and trigger callback
-                    var clipboard_data = self.read(.text) catch continue;
-                    
-                    if (self.monitor_callback) |callback| {
-                        callback(clipboard_data);
-                    } else {
-                        clipboard_data.deinit();
-                    }
-                }
-            }
-            
-            std.time.sleep(100 * std.time.ns_per_ms); // Check every 100ms
-        }
-    }
 };
 
 // Objective-C runtime functions

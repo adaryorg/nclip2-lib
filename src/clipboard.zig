@@ -59,15 +59,10 @@ pub const ClipboardData = struct {
     }
 };
 
-/// Callback function type for clipboard change monitoring
-pub const ClipboardChangeCallback = *const fn (data: ClipboardData) void;
 
 fn getBackendModule() type {
     return switch (builtin.os.tag) {
-        .linux => if (@import("builtin").link_libc) 
-            @import("backends/linux.zig") 
-        else 
-            @import("backends/fallback.zig"),
+        .linux => @import("backends/linux.zig"),
         .macos => @import("backends/macos.zig"),
         else => @import("backends/fallback.zig"),
     };
@@ -99,21 +94,6 @@ pub const Clipboard = struct {
         return self.backend.write(data, format);
     }
     
-    pub fn startMonitoring(self: *Clipboard, callback: ClipboardChangeCallback) !void {
-        return self.backend.startMonitoring(callback);
-    }
-    
-    pub fn stopMonitoring(self: *Clipboard) void {
-        self.backend.stopMonitoring();
-    }
-    
-    pub fn isAvailable(self: *Clipboard, format: ClipboardFormat) bool {
-        return self.backend.isAvailable(format);
-    }
-    
-    pub fn getAvailableFormats(self: *Clipboard, allocator: std.mem.Allocator) ![]ClipboardFormat {
-        return self.backend.getAvailableFormats(allocator);
-    }
     
     pub fn clear(self: *Clipboard) !void {
         return self.backend.clear();
@@ -124,45 +104,85 @@ pub const Clipboard = struct {
     }
 };
 
+// Cross-platform clipboard reading with automatic format detection
 pub fn readClipboardData(allocator: std.mem.Allocator) !ClipboardData {
     if (@hasDecl(Backend, "getClipboardDataAuto")) {
         return Backend.getClipboardDataAuto(allocator);
     }
     
+    // Fallback: try to read text format
     var clip = try Clipboard.init(allocator);
     defer clip.deinit();
-    
     clip.processEvents();
-    
-    const formats = try clip.getAvailableFormats(allocator);
-    defer allocator.free(formats);
-    
-    if (formats.len == 0) {
-        return ClipboardError.NoData;
+    return clip.read(.text);
+}
+
+// Write text to clipboard (cross-platform)
+pub fn writeClipboardText(allocator: std.mem.Allocator, text: []const u8) !void {
+    var clip = try Clipboard.init(allocator);
+    defer clip.deinit();
+    try clip.write(text, .text);
+}
+
+// Wayland-specific event-based monitoring (fails on X11)
+pub fn startWaylandEventMonitoring(allocator: std.mem.Allocator) !WaylandEventMonitor {
+    const platform_type = try Backend.detectPlatform();
+    if (platform_type != .wayland) {
+        return ClipboardError.UnsupportedPlatform;
     }
     
-    const priority_formats = [_]ClipboardFormat{ .text, .html, .image, .rtf };
+    return WaylandEventMonitor.init(allocator);
+}
+
+pub const WaylandEventMonitor = struct {
+    wayland_clipboard: @import("backends/wayland.zig").WaylandClipboard,
+    allocator: std.mem.Allocator,
     
-    for (priority_formats) |preferred_format| {
-        for (formats) |available_format| {
-            if (available_format == preferred_format) {
-                return clip.read(preferred_format) catch continue;
+    pub fn init(allocator: std.mem.Allocator) !WaylandEventMonitor {
+        var wayland_clipboard: @import("backends/wayland.zig").WaylandClipboard = undefined;
+        try wayland_clipboard.init(allocator);
+        
+        return WaylandEventMonitor{
+            .wayland_clipboard = wayland_clipboard,
+            .allocator = allocator,
+        };
+    }
+    
+    pub fn deinit(self: *WaylandEventMonitor) void {
+        self.wayland_clipboard.deinit();
+    }
+    
+    // Blocks until clipboard changes, returns new clipboard data
+    pub fn waitForClipboardChange(self: *WaylandEventMonitor) !ClipboardData {
+        // Reset state for new monitoring cycle
+        self.wayland_clipboard.offer_received = false;
+        self.wayland_clipboard.data_result = null;
+        self.wayland_clipboard.data_error = null;
+        
+        // Block and wait for events
+        while (true) {
+            self.wayland_clipboard.processEvents();
+            
+            // Check if we got new clipboard data
+            if (self.wayland_clipboard.data_result) |result| {
+                // Move ownership to caller
+                const owned_result = ClipboardData{
+                    .data = result.data,
+                    .format = result.format,
+                    .allocator = result.allocator,
+                };
+                // Clear the result to avoid double-free
+                self.wayland_clipboard.data_result = null;
+                return owned_result;
+            }
+            
+            if (self.wayland_clipboard.data_error) |err| {
+                return err;
             }
         }
     }
-    
-    return clip.read(formats[0]);
-}
+};
 
-pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]ClipboardFormat {
-    if (@hasDecl(Backend, "getAvailableClipboardFormats")) {
-        return Backend.getAvailableClipboardFormats(allocator);
-    }
-    
-    var clip = try Clipboard.init(allocator);
-    defer clip.deinit();
-    return clip.getAvailableFormats(allocator);
-}
 
 test "clipboard basic functionality" {
     const allocator = std.testing.allocator;

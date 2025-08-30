@@ -74,9 +74,6 @@ pub const WaylandClipboard = struct {
     // Write contexts
     active_write_contexts: std.ArrayList(*WriteContext),
     
-    // Event monitoring state
-    monitor_callback: ?clipboard.ClipboardChangeCallback,
-    monitoring_active: bool,
     
     
     pub fn init(self: *WaylandClipboard, allocator: std.mem.Allocator) !void {
@@ -107,8 +104,6 @@ pub const WaylandClipboard = struct {
             .data_error = null,
             .offer_received = false,
             .active_write_contexts = std.ArrayList(*WriteContext).init(allocator),
-            .monitor_callback = null,
-            .monitoring_active = false,
         };
         
         // Set up registry and get required globals
@@ -459,20 +454,6 @@ pub const WaylandClipboard = struct {
         _ = c.wl_display_roundtrip(self.display);
     }
     
-    pub fn startMonitoring(self: *WaylandClipboard, callback: clipboard.ClipboardChangeCallback) !void {
-        self.monitor_callback = callback;
-        self.monitoring_active = true;
-        
-        // Reset offer state to catch new events
-        self.offer_received = false;
-        self.data_result = null;
-        self.data_error = null;
-    }
-    
-    pub fn stopMonitoring(self: *WaylandClipboard) void {
-        self.monitoring_active = false;
-        self.monitor_callback = null;
-    }
     
     pub fn isAvailable(self: *WaylandClipboard, format: clipboard.ClipboardFormat) bool {
         // If we own the selection, check our own format
@@ -502,13 +483,8 @@ pub const WaylandClipboard = struct {
     }
     
     pub fn processEvents(self: *WaylandClipboard) void {
-        if (self.monitoring_active) {
-            // Blocking event processing - sleeps until events arrive
-            _ = c.wl_display_dispatch(self.display);
-        } else {
-            // Non-blocking processing for compatibility  
-            _ = c.wl_display_dispatch_pending(self.display);
-        }
+        // Blocking event processing - sleeps until events arrive
+        _ = c.wl_display_dispatch(self.display);
     }
     
     fn readFromPipe(allocator: std.mem.Allocator, pipe_fd: c_int) ![]u8 {
@@ -574,18 +550,6 @@ pub const WaylandClipboard = struct {
         }
     }
     
-    fn triggerMonitorCallback(self: *WaylandClipboard) void {
-        if (!self.monitoring_active or self.monitor_callback == null) {
-            return;
-        }
-        
-        // If we have clipboard data, notify the callback
-        if (self.data_result) |data| {
-            if (self.monitor_callback) |callback| {
-                callback(data);
-            }
-        }
-    }
     
     
     fn readWithSpecificMimeType(self: *WaylandClipboard, mime_type: []const u8, format: clipboard.ClipboardFormat) !clipboard.ClipboardData {
@@ -752,8 +716,7 @@ fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_devic
     
     
     // In single-read mode: ignore subsequent offers if we already processed one
-    // In monitoring mode: process all offers for continuous monitoring
-    if (self.offer_received and !self.monitoring_active) {
+    if (self.offer_received) {
         return;
     }
     
@@ -762,17 +725,12 @@ fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_devic
     
     if (offer != null) {
         self.we_own_selection = false;
-        if (!self.monitoring_active) {
-            self.offer_received = true; // Only set in single-read mode
-        }
+        self.offer_received = true;
         
         // Process this offer immediately like wl-paste does
         self.processOfferImmediately() catch |err| {
             self.data_error = err;
         };
-        
-        // Trigger monitoring callback if active
-        self.triggerMonitorCallback();
     } else {
         // No clipboard data available
         self.data_error = clipboard.ClipboardError.NoData;
@@ -868,8 +826,7 @@ fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
     // In single-read mode: ignore subsequent offers if we already processed one
-    // In monitoring mode: process all offers for continuous monitoring
-    if (self.offer_received and !self.monitoring_active) {
+    if (self.offer_received) {
         return;
     }
     
@@ -878,17 +835,12 @@ fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c
     
     if (offer != null) {
         self.we_own_selection = false;
-        if (!self.monitoring_active) {
-            self.offer_received = true; // Only set in single-read mode
-        }
+        self.offer_received = true;
         
         // Process this offer immediately like wl-paste does
         self.processOfferImmediately() catch |err| {
             self.data_error = err;
         };
-        
-        // Trigger monitoring callback if active
-        self.triggerMonitorCallback();
     } else {
         // No clipboard data available
         self.data_error = clipboard.ClipboardError.NoData;

@@ -11,7 +11,6 @@ fn addPlatformDependencies(step: *std.Build.Step.Compile, target: std.Build.Reso
             step.linkLibC();
             step.linkSystemLibrary("wayland-client");
             step.linkSystemLibrary("X11");
-            step.linkSystemLibrary("Xmu");
         },
         .macos => {
             step.linkLibC();
@@ -48,94 +47,95 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(lib);
 
-    // Simple executable for basic clipboard reading
-    const simple_exe = b.addExecutable(.{
-        .name = "clipboard-simple",
-        .root_source_file = b.path("examples/simple.zig"),
+    // Wayland read example
+    const wayland_read_exe = b.addExecutable(.{
+        .name = "wayland-read",
+        .root_source_file = b.path("examples/wayland_read.zig"),
         .target = target,
         .optimize = optimize,
     });
     
-    simple_exe.root_module.addImport("clipboard", clipboard_mod);
-    
-    addPlatformDependencies(simple_exe, target, b);
-    
-    b.installArtifact(simple_exe);
+    wayland_read_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(wayland_read_exe, target, b);
+    b.installArtifact(wayland_read_exe);
 
-    // Monitor executable for event-based clipboard monitoring
-    const monitor_exe = b.addExecutable(.{
-        .name = "clipboard-monitor",
-        .root_source_file = b.path("examples/monitor.zig"),
+    // Wayland event monitoring example
+    const wayland_monitor_exe = b.addExecutable(.{
+        .name = "wayland-monitor",
+        .root_source_file = b.path("examples/wayland_monitor.zig"),
         .target = target,
         .optimize = optimize,
     });
     
-    monitor_exe.root_module.addImport("clipboard", clipboard_mod);
-    
-    addPlatformDependencies(monitor_exe, target, b);
-    
-    b.installArtifact(monitor_exe);
+    wayland_monitor_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(wayland_monitor_exe, target, b);
+    b.installArtifact(wayland_monitor_exe);
 
-    // Write test executable
-    const write_test_exe = b.addExecutable(.{
-        .name = "clipboard-write-test",
-        .root_source_file = b.path("examples/write_test.zig"),
+    // Wayland write example
+    const wayland_write_exe = b.addExecutable(.{
+        .name = "wayland-write",
+        .root_source_file = b.path("examples/wayland_write.zig"),
         .target = target,
         .optimize = optimize,
     });
     
-    write_test_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(write_test_exe, target, b);
-    b.installArtifact(write_test_exe);
+    wayland_write_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(wayland_write_exe, target, b);
+    b.installArtifact(wayland_write_exe);
 
-    // Image test executable
-    const image_test_exe = b.addExecutable(.{
-        .name = "clipboard-image-test",
-        .root_source_file = b.path("examples/image_test.zig"),
+    // X11 read example
+    const x11_read_exe = b.addExecutable(.{
+        .name = "x11-read",
+        .root_source_file = b.path("examples/x11_read.zig"),
         .target = target,
         .optimize = optimize,
     });
     
-    image_test_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(image_test_exe, target, b);
-    b.installArtifact(image_test_exe);
+    x11_read_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(x11_read_exe, target, b);
+    b.installArtifact(x11_read_exe);
+
+    // X11 write example
+    const x11_write_exe = b.addExecutable(.{
+        .name = "x11-write",
+        .root_source_file = b.path("examples/x11_write.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    x11_write_exe.root_module.addImport("clipboard", clipboard_mod);
+    addPlatformDependencies(x11_write_exe, target, b);
+    b.installArtifact(x11_write_exe);
+
+
+
 
     // Run commands
-    const run_simple_cmd = b.addRunArtifact(simple_exe);
-    
-    if (b.args) |args| {
-        run_simple_cmd.addArgs(args);
-    }
-    
-    const run_simple_step = b.step("run-simple", "Run the simple clipboard reader");
-    run_simple_step.dependOn(&run_simple_cmd.step);
+    const run_wayland_read_cmd = b.addRunArtifact(wayland_read_exe);
+    if (b.args) |args| run_wayland_read_cmd.addArgs(args);
+    const run_wayland_read_step = b.step("run-wayland-read", "Run the Wayland clipboard reader");
+    run_wayland_read_step.dependOn(&run_wayland_read_cmd.step);
 
-    const run_monitor_cmd = b.addRunArtifact(monitor_exe);
-    
-    if (b.args) |args| {
-        run_monitor_cmd.addArgs(args);
-    }
-    
-    const run_monitor_step = b.step("run-monitor", "Run the event-based clipboard monitor");
-    run_monitor_step.dependOn(&run_monitor_cmd.step);
+    const run_wayland_monitor_cmd = b.addRunArtifact(wayland_monitor_exe);
+    if (b.args) |args| run_wayland_monitor_cmd.addArgs(args);
+    const run_wayland_monitor_step = b.step("run-wayland-monitor", "Run the Wayland event-based clipboard monitor");
+    run_wayland_monitor_step.dependOn(&run_wayland_monitor_cmd.step);
 
-    const run_write_test_cmd = b.addRunArtifact(write_test_exe);
-    
-    if (b.args) |args| {
-        run_write_test_cmd.addArgs(args);
-    }
-    
-    const run_write_test_step = b.step("run-write-test", "Run the clipboard write test");
-    run_write_test_step.dependOn(&run_write_test_cmd.step);
+    const run_wayland_write_cmd = b.addRunArtifact(wayland_write_exe);
+    if (b.args) |args| run_wayland_write_cmd.addArgs(args);
+    const run_wayland_write_step = b.step("run-wayland-write", "Write text to clipboard via Wayland");
+    run_wayland_write_step.dependOn(&run_wayland_write_cmd.step);
 
-    const run_image_test_cmd = b.addRunArtifact(image_test_exe);
-    
-    if (b.args) |args| {
-        run_image_test_cmd.addArgs(args);
-    }
-    
-    const run_image_test_step = b.step("run-image-test", "Run the clipboard image test");
-    run_image_test_step.dependOn(&run_image_test_cmd.step);
+    const run_x11_read_cmd = b.addRunArtifact(x11_read_exe);
+    if (b.args) |args| run_x11_read_cmd.addArgs(args);
+    const run_x11_read_step = b.step("run-x11-read", "Run the X11 clipboard reader");
+    run_x11_read_step.dependOn(&run_x11_read_cmd.step);
+
+    const run_x11_write_cmd = b.addRunArtifact(x11_write_exe);
+    if (b.args) |args| run_x11_write_cmd.addArgs(args);
+    const run_x11_write_step = b.step("run-x11-write", "Write text to clipboard via X11");
+    run_x11_write_step.dependOn(&run_x11_write_cmd.step);
+
 
     // Tests
     const lib_tests = b.addTest(.{

@@ -6,7 +6,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     
-    std.log.info("Simple Clipboard Reader (45 second test)", .{});
+    std.log.info("Wayland Clipboard Reader (45 second test)", .{});
     std.log.info("Reading clipboard every second...", .{});
     std.log.info("", .{});
     
@@ -17,6 +17,10 @@ pub fn main() !void {
             switch (err) {
                 clipboard.ClipboardError.NoData => {
                     std.log.info("[{}] Clipboard is empty", .{count});
+                },
+                clipboard.ClipboardError.UnsupportedPlatform => {
+                    std.log.info("[{}] Error: Not running on Wayland", .{count});
+                    return;
                 },
                 else => {
                     std.log.info("[{}] Error reading clipboard: {}", .{ count, err });
