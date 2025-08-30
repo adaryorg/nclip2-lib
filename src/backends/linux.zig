@@ -42,7 +42,6 @@ pub const ClipboardBackend = struct {
                 backend_ptr.init(allocator) catch |err| switch (err) {
                     clipboard.ClipboardError.InitializationFailed => {
                         allocator.destroy(backend_ptr);
-                        // Fallback to X11 if available
                         if (std.posix.getenv("DISPLAY")) |_| {
                             const x11_ptr = allocator.create(x11.X11Clipboard) catch return clipboard.ClipboardError.OutOfMemory;
                             x11_ptr.* = try x11.X11Clipboard.init(allocator);
@@ -133,18 +132,14 @@ pub const ClipboardBackend = struct {
         if (self.wayland_backend) |backend| {
             backend.processEvents();
         }
-        // X11 doesn't need event processing for polling-based clipboard monitoring
     }
 };
 
-// Standalone function for getting available formats with fresh connection
 pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]clipboard.ClipboardFormat {
     return wayland.getAvailableClipboardFormats(allocator);
 }
 
-// Single-connection function that gets formats and data with automatic format detection
 pub fn getClipboardDataAuto(allocator: std.mem.Allocator) !clipboard.ClipboardData {
-    // Detect platform and use appropriate backend
     const platform_type = try detectPlatform();
     
     switch (platform_type) {
@@ -152,7 +147,6 @@ pub fn getClipboardDataAuto(allocator: std.mem.Allocator) !clipboard.ClipboardDa
             return wayland.getClipboardDataWithAutoFormat(allocator);
         },
         .x11 => {
-            // For X11, use the optimized readBestFormat method
             var backend = try ClipboardBackend.init(allocator);
             defer backend.deinit();
             

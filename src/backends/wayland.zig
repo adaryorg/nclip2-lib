@@ -16,7 +16,6 @@ const DeviceType = enum {
     zwlr_data_control_device,
 };
 
-// Centralized MIME type constants to avoid duplication
 const MIME_TYPES = struct {
     const TEXT_PLAIN = "text/plain";
     const TEXT_PLAIN_UTF8 = "text/plain;charset=utf-8";
@@ -49,41 +48,32 @@ pub const WaylandClipboard = struct {
     display: ?*c.wl_display,
     registry: ?*c.wl_registry,
     
-    // Standard protocol
     data_device_manager: ?*c.wl_data_device_manager,
     data_device: ?*c.wl_data_device,
     
-    // WLR data control protocol  
     wlr_data_control_manager: ?*c.zwlr_data_control_manager_v1,
     wlr_data_control_device: ?*c.zwlr_data_control_device_v1,
     
-    // Common
     seat: ?*c.wl_seat,
     allocator: std.mem.Allocator,
     
-    // Protocol selection
     device_type: DeviceType,
     
-    // Clipboard state
     current_offer_standard: ?*c.wl_data_offer,
     current_offer_wlr: ?*c.zwlr_data_control_offer_v1,
     available_formats: std.ArrayList(clipboard.ClipboardFormat),
     
-    // One-shot reading state
     selection_received: bool,
     offer_mime_types_received: bool,
     
-    // Track our own clipboard data
     own_clipboard_data: ?[]u8,
     own_clipboard_format: ?clipboard.ClipboardFormat,
     we_own_selection: bool,
     
-    // Event-driven data reading results
     data_result: ?clipboard.ClipboardData,
     data_error: ?clipboard.ClipboardError,
     offer_received: bool,
     
-    // Write contexts
     active_write_contexts: std.ArrayList(*WriteContext),
     
     
@@ -103,7 +93,7 @@ pub const WaylandClipboard = struct {
             .wlr_data_control_device = null,
             .seat = null,
             .allocator = allocator,
-            .device_type = .wl_data_device, // Default, will be updated
+            .device_type = .wl_data_device, 
             .current_offer_standard = null,
             .current_offer_wlr = null,
             .available_formats = std.ArrayList(clipboard.ClipboardFormat).init(allocator),
@@ -118,7 +108,6 @@ pub const WaylandClipboard = struct {
             .active_write_contexts = std.ArrayList(*WriteContext).init(allocator),
         };
         
-        // Set up registry and get required globals
         const registry = c.wl_display_get_registry(display);
         if (registry == null) {
             c.wl_display_disconnect(display);
@@ -135,9 +124,7 @@ pub const WaylandClipboard = struct {
         _ = c.wl_registry_add_listener(registry, &registry_listener, self);
         _ = c.wl_display_roundtrip(display);
         
-        // Select the best available protocol (following wl-paste priority)
         if (self.wlr_data_control_manager != null and self.seat != null) {
-            // Use wlr data control protocol (no popup needed)
             self.device_type = .zwlr_data_control_device;
             
             self.wlr_data_control_device = c.zwlr_data_control_manager_v1_get_data_device(
@@ -160,7 +147,6 @@ pub const WaylandClipboard = struct {
             _ = c.zwlr_data_control_device_v1_add_listener(self.wlr_data_control_device, &wlr_device_listener, self);
             
         } else if (self.data_device_manager != null and self.seat != null) {
-            // Fall back to standard protocol
             self.device_type = .wl_data_device;
             
             self.data_device = c.wl_data_device_manager_get_data_device(
@@ -189,7 +175,6 @@ pub const WaylandClipboard = struct {
             return clipboard.ClipboardError.InitializationFailed;
         }
         
-        // Get initial clipboard state
         _ = c.wl_display_roundtrip(self.display);
     }
     
@@ -198,18 +183,14 @@ pub const WaylandClipboard = struct {
     }
     
     pub fn deinitWithoutDataCleanup(self: *WaylandClipboard) void {
-        // Clean up any remaining write contexts
         for (self.active_write_contexts.items) |context| {
             context.deinit();
         }
         self.active_write_contexts.deinit();
         
-        // Clean up our own clipboard data
         if (self.own_clipboard_data) |data| {
             self.allocator.free(data);
         }
-        
-        // DON'T clean up data_result - caller now owns it
         
         self.available_formats.deinit();
         
@@ -237,18 +218,15 @@ pub const WaylandClipboard = struct {
     }
     
     fn deinitPartial(self: *WaylandClipboard) void {
-        // Clean up any remaining write contexts
         for (self.active_write_contexts.items) |context| {
             context.deinit();
         }
         self.active_write_contexts.deinit();
         
-        // Clean up our own clipboard data
         if (self.own_clipboard_data) |data| {
             self.allocator.free(data);
         }
         
-        // Clean up data_result if it exists
         if (self.data_result) |*data| {
             data.deinit();
         }
@@ -279,23 +257,21 @@ pub const WaylandClipboard = struct {
     }
     
     pub fn read(self: *WaylandClipboard, format: clipboard.ClipboardFormat) !clipboard.ClipboardData {
-        // Create fresh connection for each read (like wl-paste does)
         var temp_clipboard: WaylandClipboard = undefined;
         try temp_clipboard.init(self.allocator);
         defer temp_clipboard.deinit();
         
         // Multiple roundtrips to ensure we get all clipboard offer events
+        //TODO: this looks ugly. see if it can be optimized
         _ = c.wl_display_roundtrip(temp_clipboard.display);
         _ = c.wl_display_roundtrip(temp_clipboard.display);
         _ = c.wl_display_roundtrip(temp_clipboard.display);
         
-        // Read the requested format
         return temp_clipboard.readFromCurrentOffer(format);
     }
     
     fn readFromCurrentOffer(self: *WaylandClipboard, format: clipboard.ClipboardFormat) !clipboard.ClipboardData {
         
-        // If we own the selection, return our own data
         if (self.we_own_selection and self.own_clipboard_data != null) {
             if (self.own_clipboard_format == format) {
                 const clipboard_data = try self.allocator.dupe(u8, self.own_clipboard_data.?);
@@ -309,7 +285,6 @@ pub const WaylandClipboard = struct {
             }
         }
         
-        // Otherwise, try to read from external clipboard owner
         const has_offer = switch (self.device_type) {
             .wl_data_device => self.current_offer_standard != null,
             .zwlr_data_control_device => self.current_offer_wlr != null,
@@ -320,7 +295,6 @@ pub const WaylandClipboard = struct {
             return clipboard.ClipboardError.NoData;
         }
         
-        // Check if format is available
         if (!self.isAvailable(format)) {
             return clipboard.ClipboardError.InvalidData;
         }
@@ -346,7 +320,6 @@ pub const WaylandClipboard = struct {
         
         _ = c.wl_display_roundtrip(self.display);
         
-        // Read data from pipe using helper
         const final_data = try readFromPipe(self.allocator, pipe_fds[0]);
         _ = c.close(pipe_fds[0]);
         
@@ -358,12 +331,10 @@ pub const WaylandClipboard = struct {
     }
     
     pub fn write(self: *WaylandClipboard, data: []const u8, format: clipboard.ClipboardFormat) !void {
-        // Clean up previous own data
         if (self.own_clipboard_data) |old_data| {
             self.allocator.free(old_data);
         }
         
-        // Store our own data
         self.own_clipboard_data = try self.allocator.dupe(u8, data);
         self.own_clipboard_format = format;
         
@@ -375,7 +346,6 @@ pub const WaylandClipboard = struct {
                     return clipboard.ClipboardError.WriteFailed;
                 }
                 
-                // Offer multiple MIME types for text like wl-copy does
                 if (format == .text) {
                     const text_plain = try self.allocator.dupeZ(u8, "text/plain");
                     defer self.allocator.free(text_plain);
@@ -409,7 +379,6 @@ pub const WaylandClipboard = struct {
                     .action = dataSourceAction,
                 };
                 
-                // Store data for send callback
                 const context = try self.allocator.create(WriteContext);
                 context.* = WriteContext{
                     .data = try self.allocator.dupe(u8, data),
@@ -417,7 +386,6 @@ pub const WaylandClipboard = struct {
                     .parent = self,
                 };
                 
-                // Track the context for proper cleanup
                 try self.active_write_contexts.append(context);
                 
                 _ = c.wl_data_source_add_listener(source, &source_listener, context);
@@ -430,7 +398,6 @@ pub const WaylandClipboard = struct {
                     return clipboard.ClipboardError.WriteFailed;
                 }
                 
-                // Offer multiple MIME types for text like wl-copy does
                 if (format == .text) {
                     const text_plain = try self.allocator.dupeZ(u8, "text/plain");
                     defer self.allocator.free(text_plain);
@@ -460,7 +427,6 @@ pub const WaylandClipboard = struct {
                     .cancelled = wlrDataSourceCancelled,
                 };
                 
-                // Store data for send callback
                 const context = try self.allocator.create(WriteContext);
                 context.* = WriteContext{
                     .data = try self.allocator.dupe(u8, data),
@@ -468,7 +434,6 @@ pub const WaylandClipboard = struct {
                     .parent = self,
                 };
                 
-                // Track the context for proper cleanup
                 try self.active_write_contexts.append(context);
                 
                 _ = c.zwlr_data_control_source_v1_add_listener(source, &wlr_source_listener, context);
@@ -476,17 +441,14 @@ pub const WaylandClipboard = struct {
             },
         }
         
-        // Mark that we now own the selection
         self.we_own_selection = true;
         
         _ = c.wl_display_roundtrip(self.display);
         
-        // Fork to background like wl-copy does
         try self.forkToBackground();
     }
     
     pub fn clear(self: *WaylandClipboard) !void {
-        // Clean up our own data
         if (self.own_clipboard_data) |data| {
             self.allocator.free(data);
             self.own_clipboard_data = null;
@@ -507,12 +469,10 @@ pub const WaylandClipboard = struct {
     
     
     pub fn isAvailable(self: *WaylandClipboard, format: clipboard.ClipboardFormat) bool {
-        // If we own the selection, check our own format
         if (self.we_own_selection and self.own_clipboard_data != null) {
             return self.own_clipboard_format == format;
         }
         
-        // Otherwise check available formats from external offers
         for (self.available_formats.items) |available_format| {
             if (available_format == format) {
                 return true;
@@ -522,19 +482,16 @@ pub const WaylandClipboard = struct {
     }
     
     pub fn getAvailableFormats(self: *WaylandClipboard, allocator: std.mem.Allocator) ![]clipboard.ClipboardFormat {
-        // If we own the selection, return our own format
         if (self.we_own_selection and self.own_clipboard_data != null) {
             var formats = try allocator.alloc(clipboard.ClipboardFormat, 1);
             formats[0] = self.own_clipboard_format.?;
             return formats;
         }
         
-        // Otherwise return external formats
         return try allocator.dupe(clipboard.ClipboardFormat, self.available_formats.items);
     }
     
     pub fn processEvents(self: *WaylandClipboard) void {
-        // Blocking event processing - sleeps until events arrive
         _ = c.wl_display_dispatch(self.display);
     }
     
@@ -570,13 +527,10 @@ pub const WaylandClipboard = struct {
         };
         
         if (pid > 0) {
-            // Parent process - return to caller normally
             return;
         }
         
-        // Child process - redirect stdio and enter event loop
         const dev_null = std.fs.openFileAbsolute("/dev/null", .{}) catch {
-            // If we can't open /dev/null, just close stdin/stdout
             std.posix.close(0);
             std.posix.close(1);
             self.backgroundEventLoop();
@@ -595,7 +549,6 @@ pub const WaylandClipboard = struct {
         while (true) {
             const result = c.wl_display_dispatch(self.display);
             if (result < 0) {
-                // Connection lost, exit
                 c.exit(1);
             }
         }
@@ -636,7 +589,6 @@ pub const WaylandClipboard = struct {
         
         _ = c.wl_display_roundtrip(self.display);
         
-        // Read data from pipe using helper
         const final_data = try readFromPipe(self.allocator, pipe_fds[0]);
         _ = c.close(pipe_fds[0]);
         
@@ -647,28 +599,21 @@ pub const WaylandClipboard = struct {
         };
     }
     
-    // Process offer immediately like wl-paste selection_callback
     fn processOfferImmediately(self: *WaylandClipboard) !void {
-        
-        // NO roundtrips here! Use formats we already have, like wl-paste does
-        // wl-paste processes the offer immediately with what it has
-        
-        // Choose MIME type to request like wl-paste mime_type_to_request logic
         var chosen_mime_type: ?[]const u8 = null;
         var chosen_format: clipboard.ClipboardFormat = .text;
         
-        // wl-paste priority: try text first, then any available
         for (self.available_formats.items) |format| {
             switch (format) {
                 .text => {
-                    chosen_mime_type = "text/plain;charset=utf-8"; // Try UTF-8 first
+                    chosen_mime_type = "text/plain;charset=utf-8"; 
                     chosen_format = .text;
                     break;
                 },
                 .image => {
                     chosen_mime_type = "image/png";
                     chosen_format = .image;
-                    if (chosen_mime_type == null) break; // Take first available if no text
+                    if (chosen_mime_type == null) break; 
                 },
                 .html => {
                     chosen_mime_type = "text/html";
@@ -685,7 +630,6 @@ pub const WaylandClipboard = struct {
         
         
         if (chosen_mime_type) |mime_type| {
-            // Read the data with the chosen MIME type
             self.data_result = self.readWithSpecificMimeType(mime_type, chosen_format) catch |err| {
                 self.data_error = err;
                 return;
@@ -702,12 +646,10 @@ const WriteContext = struct {
     parent: *WaylandClipboard,
     
     fn deinit(self: *WriteContext) void {
-        // Safety check: only free if data is valid
         if (self.data.len > 0) {
             self.allocator.free(self.data);
         }
         
-        // Remove self from parent's tracking list safely
         if (self.parent.active_write_contexts.items.len > 0) {
             for (self.parent.active_write_contexts.items, 0..) |context, i| {
                 if (context == self) {
@@ -721,7 +663,6 @@ const WriteContext = struct {
     }
 };
 
-// Wayland callback functions
 fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.C) void {
     _ = version;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
@@ -741,17 +682,14 @@ fn registryGlobalRemove(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32)
     _ = name;
 }
 
-// WLR Data Control Device callbacks
 fn wlrDataDeviceDataOffer(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.C) void {
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
     
-    // Clear formats for new offer
     self.available_formats.clearRetainingCapacity();
     self.offer_mime_types_received = false;
     
-    // Store self pointer as user data for the offer so callbacks can access it
     c.wl_proxy_set_user_data(@ptrCast(offer), self);
     
     const offer_listener = c.zwlr_data_control_offer_v1_listener{
@@ -765,8 +703,6 @@ fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_devic
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
-    
-    // In single-read mode: ignore subsequent offers if we already processed one
     if (self.offer_received) {
         return;
     }
@@ -778,12 +714,10 @@ fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_devic
         self.we_own_selection = false;
         self.offer_received = true;
         
-        // Process this offer immediately like wl-paste does
         self.processOfferImmediately() catch |err| {
             self.data_error = err;
         };
     } else {
-        // No clipboard data available
         self.data_error = clipboard.ClipboardError.NoData;
     }
 }
@@ -795,6 +729,7 @@ fn wlrDataDeviceFinished(data: ?*anyopaque, device: ?*c.zwlr_data_control_device
 fn wlrDataDevicePrimarySelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.C) void {
     _ = data; _ = device; _ = offer;
     // Primary selection not implemented
+    // TODO: check if this needs to be implemented?
 }
 
 fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, mime_type: [*c]const u8) callconv(.C) void {
@@ -806,7 +741,6 @@ fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, m
     
     const format_to_add = mimeTypeToFormat(mime_str);
     
-    // Only add if not already present
     if (format_to_add) |format| {
         for (self.available_formats.items) |existing_format| {
             if (existing_format == format) {
@@ -819,7 +753,6 @@ fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, m
     self.offer_mime_types_received = true;
 }
 
-// WLR Data Source callbacks
 fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1, mime_type: [*c]const u8, fd: i32) callconv(.C) void {
     _ = source; _ = mime_type;
     
@@ -830,10 +763,8 @@ fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1,
     
     const context: *WriteContext = @ptrCast(@alignCast(data));
     
-    // Unset O_NONBLOCK like wl-copy does
     _ = c.fcntl(fd, c.F_SETFL, @as(c_int, 0));
     
-    // Use fdopen/fwrite like wl-copy does (binary mode for all data)
     const file = c.fdopen(fd, "wb");
     if (file == null) {
         _ = c.close(fd);
@@ -841,26 +772,22 @@ fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1,
     }
     
     _ = c.fwrite(context.data.ptr, 1, context.data.len, file);
-    _ = c.fclose(file); // This also closes the fd
+    _ = c.fclose(file); 
 }
 
 fn wlrDataSourceCancelled(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1) callconv(.C) void {
     _ = source; _ = data;
     
-    // Exit immediately like wl-copy does - no cleanup needed since process exits
     c.exit(0);
 }
 
-// Standard Wayland Data Device callbacks
 fn dataDeviceDataOffer(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c.wl_data_offer) callconv(.C) void {
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
-    // Clear formats for new offer
     self.available_formats.clearRetainingCapacity();
     self.offer_mime_types_received = false;
     
-    // Store self pointer as user data for the offer so callbacks can access it
     c.wl_proxy_set_user_data(@ptrCast(offer), self);
     
     const offer_listener = c.wl_data_offer_listener{
@@ -876,7 +803,6 @@ fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
-    // In single-read mode: ignore subsequent offers if we already processed one
     if (self.offer_received) {
         return;
     }
@@ -888,12 +814,10 @@ fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c
         self.we_own_selection = false;
         self.offer_received = true;
         
-        // Process this offer immediately like wl-paste does
         self.processOfferImmediately() catch |err| {
             self.data_error = err;
         };
     } else {
-        // No clipboard data available
         self.data_error = clipboard.ClipboardError.NoData;
     }
 }
@@ -907,7 +831,6 @@ fn dataOfferOffer(data: ?*anyopaque, offer: ?*c.wl_data_offer, mime_type: [*c]co
     
     const format_to_add = mimeTypeToFormat(mime_str);
     
-    // Only add if not already present
     if (format_to_add) |format| {
         for (self.available_formats.items) |existing_format| {
             if (existing_format == format) {
@@ -944,7 +867,6 @@ fn dataOfferAction(data: ?*anyopaque, offer: ?*c.wl_data_offer, dnd_action: u32)
     _ = data; _ = offer; _ = dnd_action;
 }
 
-// Standard Wayland Data Source callbacks
 fn dataSourceTarget(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]const u8) callconv(.C) void {
     _ = data; _ = source; _ = mime_type;
 }
@@ -959,10 +881,8 @@ fn dataSourceSend(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]
     
     const context: *WriteContext = @ptrCast(@alignCast(data));
     
-    // Unset O_NONBLOCK like wl-copy does
     _ = c.fcntl(fd, c.F_SETFL, @as(c_int, 0));
     
-    // Use fdopen/fwrite like wl-copy does (binary mode for all data)
     const file = c.fdopen(fd, "wb");
     if (file == null) {
         _ = c.close(fd);
@@ -970,13 +890,12 @@ fn dataSourceSend(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]
     }
     
     _ = c.fwrite(context.data.ptr, 1, context.data.len, file);
-    _ = c.fclose(file); // This also closes the fd
+    _ = c.fclose(file); 
 }
 
 fn dataSourceCancelled(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.C) void {
     _ = source; _ = data;
     
-    // Exit immediately like wl-copy does - no cleanup needed since process exits
     c.exit(0);
 }
 
@@ -992,22 +911,17 @@ fn dataSourceAction(data: ?*anyopaque, source: ?*c.wl_data_source, dnd_action: u
     _ = data; _ = source; _ = dnd_action;
 }
 
-// Simple standalone function to get available clipboard formats
 pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]clipboard.ClipboardFormat {
-    // Create temporary clipboard instance
     var temp_clipboard: WaylandClipboard = undefined;
     try temp_clipboard.init(allocator);
     defer temp_clipboard.deinit();
     
     
-    // Process events until we have clipboard data
     var rounds: u32 = 0;
-    while (rounds < 10) { // Max 10 rounds to avoid infinite loop
+    while (rounds < 10) { 
         _ = c.wl_display_roundtrip(temp_clipboard.display);
         
-        // Check if we have received clipboard data
         if (temp_clipboard.selection_received and temp_clipboard.offer_mime_types_received) {
-            // Do one more roundtrip to ensure all MIME types are processed
             _ = c.wl_display_roundtrip(temp_clipboard.display);
             break;
         }
@@ -1018,19 +932,14 @@ pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]clipboard.C
     return temp_clipboard.getAvailableFormats(allocator);
 }
 
-// Get current clipboard data immediately like wl-paste: connect, get current data, exit
 pub fn getClipboardDataWithAutoFormat(allocator: std.mem.Allocator) !clipboard.ClipboardData {
-    // Create clipboard instance (this sets up device and triggers automatic selection events)
     var temp_clipboard: WaylandClipboard = undefined;
     temp_clipboard.init(allocator) catch |err| {
         return err;
     };
     defer temp_clipboard.deinitWithoutDataCleanup();
     
-    // The init() call above already did roundtrip and may have triggered selection events
-    // Check if we already got clipboard data during init
     if (temp_clipboard.data_result) |result| {
-        // Move ownership to caller by clearing the result reference
         temp_clipboard.data_result = null;
         return result;
     }
@@ -1038,11 +947,8 @@ pub fn getClipboardDataWithAutoFormat(allocator: std.mem.Allocator) !clipboard.C
         return err;
     }
     
-    // If not, the compositor will send current state in next dispatch
-    // Process one event (this will be the automatic selection event)
     if (c.wl_display_dispatch(temp_clipboard.display) >= 0) {
         if (temp_clipboard.data_result) |result| {
-            // Move ownership to caller by clearing the result reference
             temp_clipboard.data_result = null;
             return result;
         }

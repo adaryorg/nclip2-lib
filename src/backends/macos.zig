@@ -18,6 +18,16 @@ const SELECTORS = struct {
     const INIT_WITH_DATA = "initWithData:";
     const RELEASE = "release";
     const STRING_WITH_UTF8_STRING = "stringWithUTF8String:";
+    const STRING_FOR_TYPE = "stringForType:";
+    const SET_STRING_FOR_TYPE = "setString:forType:";
+    const SET_DATA_FOR_TYPE = "setData:forType:";
+    const CLEAR_CONTENTS = "clearContents";
+};
+
+const NSPasteboardTypes = struct {
+    const STRING = "public.utf8-plain-text";
+    const HTML = "public.html";
+    const RTF = "public.rtf";
 };
 
 fn objc_msgSend_usize(receiver: ?*anyopaque, sel: *anyopaque) usize {
@@ -58,6 +68,60 @@ fn getArrayCount(array: ?*anyopaque) usize {
 fn getArrayObjectAtIndex(array: ?*anyopaque, index: usize) ?*anyopaque {
     if (array == null) return null;
     return objc_msgSend_objectAtIndex(array, sel_registerName(SELECTORS.OBJECT_AT_INDEX), index);
+}
+
+fn createNSStringFromType(type_name: []const u8, allocator: std.mem.Allocator) !?*anyopaque {
+    const type_name_z = try allocator.dupeZ(u8, type_name);
+    defer allocator.free(type_name_z);
+    
+    const NSString = objc_getClass("NSString") orelse return null;
+    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.C) ?*anyopaque;
+    const stringWithUTF8 = @as(StringWithUTF8Fn, @ptrCast(&objc_msgSend));
+    
+    return stringWithUTF8(NSString, sel_registerName(SELECTORS.STRING_WITH_UTF8_STRING), type_name_z.ptr);
+}
+
+fn createNSString(text: []const u8, allocator: std.mem.Allocator) !?*anyopaque {
+    const text_z = try allocator.dupeZ(u8, text);
+    defer allocator.free(text_z);
+    
+    const NSString = objc_getClass("NSString") orelse return null;
+    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.C) ?*anyopaque;
+    const stringWithUTF8 = @as(StringWithUTF8Fn, @ptrCast(&objc_msgSend));
+    
+    return stringWithUTF8(NSString, sel_registerName(SELECTORS.STRING_WITH_UTF8_STRING), text_z.ptr);
+}
+
+fn pasteboardStringForType(pasteboard: ?*anyopaque, type_string: ?*anyopaque) ?*anyopaque {
+    if (pasteboard == null or type_string == null) return null;
+    
+    const StringForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, type: ?*anyopaque) callconv(.C) ?*anyopaque;
+    const stringForType = @as(StringForTypeFn, @ptrCast(&objc_msgSend));
+    
+    return stringForType(pasteboard, sel_registerName(SELECTORS.STRING_FOR_TYPE), type_string);
+}
+
+fn pasteboardSetStringForType(pasteboard: ?*anyopaque, string: ?*anyopaque, type_string: ?*anyopaque) void {
+    if (pasteboard == null or string == null or type_string == null) return;
+    
+    const SetStringForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, string: ?*anyopaque, type: ?*anyopaque) callconv(.C) void;
+    const setStringForType = @as(SetStringForTypeFn, @ptrCast(&objc_msgSend));
+    
+    setStringForType(pasteboard, sel_registerName(SELECTORS.SET_STRING_FOR_TYPE), string, type_string);
+}
+
+fn pasteboardSetDataForType(pasteboard: ?*anyopaque, data: ?*anyopaque, type_string: ?*anyopaque) void {
+    if (pasteboard == null or data == null or type_string == null) return;
+    
+    const SetDataForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, data: ?*anyopaque, type: ?*anyopaque) callconv(.C) void;
+    const setDataForType = @as(SetDataForTypeFn, @ptrCast(&objc_msgSend));
+    
+    setDataForType(pasteboard, sel_registerName(SELECTORS.SET_DATA_FOR_TYPE), data, type_string);
+}
+
+fn pasteboardClearContents(pasteboard: ?*anyopaque) void {
+    if (pasteboard == null) return;
+    _ = objc_msgSend(pasteboard, sel_registerName(SELECTORS.CLEAR_CONTENTS));
 }
 
 fn getDataForType(pasteboard: ?*anyopaque, type_string: ?*anyopaque) ?*anyopaque {
@@ -138,9 +202,15 @@ fn detectAndReadImageData(pasteboard: ?*anyopaque, allocator: std.mem.Allocator)
         const type_str = std.mem.span(@as([*:0]const u8, @ptrCast(type_cstring)));
         std.log.debug("Checking type: {s}", .{type_str});
         
-        if (!std.mem.startsWith(u8, type_str, "public.") and 
-            !std.mem.startsWith(u8, type_str, "com.") and
-            !std.mem.containsAtLeast(u8, type_str, 1, "image")) {
+        const is_likely_image = std.mem.containsAtLeast(u8, type_str, 1, "image") or
+            std.mem.containsAtLeast(u8, type_str, 1, "png") or
+            std.mem.containsAtLeast(u8, type_str, 1, "jpeg") or
+            std.mem.containsAtLeast(u8, type_str, 1, "tiff") or
+            std.mem.containsAtLeast(u8, type_str, 1, "gif") or
+            std.mem.containsAtLeast(u8, type_str, 1, "bmp") or
+            std.mem.containsAtLeast(u8, type_str, 1, "heic");
+        
+        if (!is_likely_image) {
             continue;
         }
         
@@ -189,35 +259,6 @@ fn tryReadImageTypeByObj(pasteboard: ?*anyopaque, type_obj: ?*anyopaque, allocat
     return clipboard.ClipboardError.NoData;
 }
 
-fn runPasteCommand(allocator: std.mem.Allocator, args: []const []const u8, format: clipboard.ClipboardFormat) !clipboard.ClipboardData {
-    var child = std.process.Child.init(args, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-    
-    try child.spawn();
-    
-    const stdout = try child.stdout.?.readToEndAlloc(allocator, 1024 * 1024);
-    const stderr = try child.stderr.?.readToEndAlloc(allocator, 1024);
-    defer allocator.free(stderr);
-    
-    const result = try child.wait();
-    
-    if (result != .Exited or result.Exited != 0) {
-        allocator.free(stdout);
-        return clipboard.ClipboardError.ReadFailed;
-    }
-    
-    if (stdout.len == 0) {
-        allocator.free(stdout);
-        return clipboard.ClipboardError.NoData;
-    }
-    
-    return clipboard.ClipboardData{
-        .data = stdout,
-        .format = format,
-        .allocator = allocator,
-    };
-}
 
 pub const ClipboardBackend = struct {
     allocator: std.mem.Allocator,
@@ -242,7 +283,31 @@ pub const ClipboardBackend = struct {
     }
     
     fn readText(self: *ClipboardBackend) !clipboard.ClipboardData {
-        return runPasteCommand(self.allocator, &[_][]const u8{"pbpaste"}, .text);
+        const pasteboard = getGeneralPasteboard() orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const type_string = try createNSStringFromType(NSPasteboardTypes.STRING, self.allocator) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const result_string = pasteboardStringForType(pasteboard, type_string) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const cstring = objc_msgSend(result_string, sel_registerName(SELECTORS.UTF8_STRING));
+        if (cstring == null) {
+            return clipboard.ClipboardError.NoData;
+        }
+        
+        const text = std.mem.span(@as([*:0]const u8, @ptrCast(cstring)));
+        const clipboard_data = try self.allocator.dupe(u8, text);
+        
+        return clipboard.ClipboardData{
+            .data = clipboard_data,
+            .format = .text,
+            .allocator = self.allocator,
+        };
     }
     
     fn readImage(self: *ClipboardBackend) !clipboard.ClipboardData {
@@ -258,43 +323,151 @@ pub const ClipboardBackend = struct {
     }
     
     fn readHtml(self: *ClipboardBackend) !clipboard.ClipboardData {
-        _ = self;
-        return clipboard.ClipboardError.NoData;
+        const pasteboard = getGeneralPasteboard() orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const type_string = try createNSStringFromType(NSPasteboardTypes.HTML, self.allocator) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const data = getDataForType(pasteboard, type_string) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const length = getDataLength(data);
+        if (length == 0) {
+            return clipboard.ClipboardError.NoData;
+        }
+        
+        const bytes_ptr = getDataBytes(data) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const bytes = @as([*]const u8, @ptrCast(bytes_ptr))[0..length];
+        const clipboard_data = try self.allocator.dupe(u8, bytes);
+        
+        return clipboard.ClipboardData{
+            .data = clipboard_data,
+            .format = .html,
+            .allocator = self.allocator,
+        };
     }
     
     fn readRtf(self: *ClipboardBackend) !clipboard.ClipboardData {
-        return runPasteCommand(self.allocator, &[_][]const u8{"pbpaste", "-Prefer", "rtf"}, .rtf);
+        const pasteboard = getGeneralPasteboard() orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const type_string = try createNSStringFromType(NSPasteboardTypes.RTF, self.allocator) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const data = getDataForType(pasteboard, type_string) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const length = getDataLength(data);
+        if (length == 0) {
+            return clipboard.ClipboardError.NoData;
+        }
+        
+        const bytes_ptr = getDataBytes(data) orelse {
+            return clipboard.ClipboardError.NoData;
+        };
+        
+        const bytes = @as([*]const u8, @ptrCast(bytes_ptr))[0..length];
+        const clipboard_data = try self.allocator.dupe(u8, bytes);
+        
+        return clipboard.ClipboardData{
+            .data = clipboard_data,
+            .format = .rtf,
+            .allocator = self.allocator,
+        };
     }
     
     pub fn write(self: *ClipboardBackend, data: []const u8, format: clipboard.ClipboardFormat) !void {
         switch (format) {
             .text => return self.writeText(data),
-            .image, .html, .rtf => return clipboard.ClipboardError.UnsupportedPlatform,
+            .html => return self.writeHtml(data),
+            .rtf => return self.writeRtf(data),
+            .image => return clipboard.ClipboardError.UnsupportedPlatform, 
         }
+    }
+    
+    fn writeHtml(self: *ClipboardBackend, data: []const u8) !void {
+        const pasteboard = getGeneralPasteboard() orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        pasteboardClearContents(pasteboard);
+        
+        const NSData = objc_getClass("NSData") orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        const DataWithBytesFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, bytes: [*]const u8, length: usize) callconv(.C) ?*anyopaque;
+        const dataWithBytes = @as(DataWithBytesFn, @ptrCast(&objc_msgSend));
+        const data_obj = dataWithBytes(NSData, sel_registerName("dataWithBytes:length:"), data.ptr, data.len) orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        const type_string = try createNSStringFromType(NSPasteboardTypes.HTML, self.allocator) orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        pasteboardSetDataForType(pasteboard, data_obj, type_string);
+    }
+    
+    fn writeRtf(self: *ClipboardBackend, data: []const u8) !void {
+        const pasteboard = getGeneralPasteboard() orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        pasteboardClearContents(pasteboard);
+        
+        const NSData = objc_getClass("NSData") orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        const DataWithBytesFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, bytes: [*]const u8, length: usize) callconv(.C) ?*anyopaque;
+        const dataWithBytes = @as(DataWithBytesFn, @ptrCast(&objc_msgSend));
+        const data_obj = dataWithBytes(NSData, sel_registerName("dataWithBytes:length:"), data.ptr, data.len) orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        const type_string = try createNSStringFromType(NSPasteboardTypes.RTF, self.allocator) orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        pasteboardSetDataForType(pasteboard, data_obj, type_string);
     }
     
     fn writeText(self: *ClipboardBackend, data: []const u8) !void {
-        var child = std.process.Child.init(&[_][]const u8{"pbcopy"}, self.allocator);
-        child.stdin_behavior = .Pipe;
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Ignore;
-        
-        try child.spawn();
-        
-        const stdin = child.stdin.?;
-        try stdin.writeAll(data);
-        stdin.close();
-        child.stdin = null;
-        
-        const result = try child.wait();
-        
-        if (result != .Exited or result.Exited != 0) {
+        const pasteboard = getGeneralPasteboard() orelse {
             return clipboard.ClipboardError.WriteFailed;
-        }
+        };
+        
+        pasteboardClearContents(pasteboard);
+        
+        const string_obj = try createNSString(data, self.allocator) orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        const type_string = try createNSStringFromType(NSPasteboardTypes.STRING, self.allocator) orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        pasteboardSetStringForType(pasteboard, string_obj, type_string);
     }
     
     pub fn clear(self: *ClipboardBackend) !void {
-        return self.writeText("");
+        _ = self;
+        const pasteboard = getGeneralPasteboard() orelse {
+            return clipboard.ClipboardError.WriteFailed;
+        };
+        
+        pasteboardClearContents(pasteboard);
     }
     
     pub fn processEvents(self: *ClipboardBackend) void {
