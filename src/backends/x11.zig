@@ -235,7 +235,7 @@ pub const X11Clipboard = struct {
                     return try self.readProperty();
                 }
             }
-            std.time.sleep(1 * std.time.ns_per_ms);
+            std.Thread.sleep(1 * std.time.ns_per_ms);
         }
         
         return clipboard.ClipboardError.Timeout;
@@ -314,8 +314,8 @@ pub const X11Clipboard = struct {
         _ = c.XDeleteProperty(self.display, self.window, self.property_atom);
         _ = c.XFlush(self.display);
         
-        var data = std.ArrayList(u8).init(self.allocator);
-        defer data.deinit();
+        var data = std.ArrayList(u8){};
+        defer data.deinit(self.allocator);
         
         var event: c.XEvent = undefined;
         const timeout_ms = 5000; 
@@ -365,7 +365,7 @@ pub const X11Clipboard = struct {
                             };
                         }
                         
-                        try data.appendSlice(prop_data[0..chunk_len]);
+                        try data.appendSlice(self.allocator, prop_data[0..chunk_len]);
                         _ = c.XFree(prop_data);
                     }
                     
@@ -373,7 +373,7 @@ pub const X11Clipboard = struct {
                     _ = c.XFlush(self.display);
                 }
             }
-            std.time.sleep(1 * std.time.ns_per_ms);
+            std.Thread.sleep(1 * std.time.ns_per_ms);
         }
         
         return clipboard.ClipboardError.Timeout;
@@ -614,7 +614,7 @@ pub const X11Clipboard = struct {
                     break;
                 }
             }
-            std.time.sleep(1 * std.time.ns_per_ms);
+            std.Thread.sleep(1 * std.time.ns_per_ms);
         }
         
         if (std.time.milliTimestamp() - start_time >= timeout_ms) {
@@ -810,7 +810,7 @@ pub const X11Clipboard = struct {
                     return try self.readProperty();
                 }
             }
-            std.time.sleep(1 * std.time.ns_per_ms);
+            std.Thread.sleep(1 * std.time.ns_per_ms);
         }
         
         return clipboard.ClipboardError.Timeout;

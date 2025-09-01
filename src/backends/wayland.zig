@@ -96,7 +96,7 @@ pub const WaylandClipboard = struct {
             .device_type = .wl_data_device, 
             .current_offer_standard = null,
             .current_offer_wlr = null,
-            .available_formats = std.ArrayList(clipboard.ClipboardFormat).init(allocator),
+            .available_formats = std.ArrayList(clipboard.ClipboardFormat){},
             .selection_received = false,
             .offer_mime_types_received = false,
             .own_clipboard_data = null,
@@ -105,7 +105,7 @@ pub const WaylandClipboard = struct {
             .data_result = null,
             .data_error = null,
             .offer_received = false,
-            .active_write_contexts = std.ArrayList(*WriteContext).init(allocator),
+            .active_write_contexts = std.ArrayList(*WriteContext){},
         };
         
         const registry = c.wl_display_get_registry(display);
@@ -186,13 +186,13 @@ pub const WaylandClipboard = struct {
         for (self.active_write_contexts.items) |context| {
             context.deinit();
         }
-        self.active_write_contexts.deinit();
+        self.active_write_contexts.deinit(self.allocator);
         
         if (self.own_clipboard_data) |data| {
             self.allocator.free(data);
         }
         
-        self.available_formats.deinit();
+        self.available_formats.deinit(self.allocator);
         
         if (self.data_device) |device| {
             c.wl_data_device_destroy(device);
@@ -221,7 +221,7 @@ pub const WaylandClipboard = struct {
         for (self.active_write_contexts.items) |context| {
             context.deinit();
         }
-        self.active_write_contexts.deinit();
+        self.active_write_contexts.deinit(self.allocator);
         
         if (self.own_clipboard_data) |data| {
             self.allocator.free(data);
@@ -231,7 +231,7 @@ pub const WaylandClipboard = struct {
             data.deinit();
         }
         
-        self.available_formats.deinit();
+        self.available_formats.deinit(self.allocator);
         
         if (self.data_device) |device| {
             c.wl_data_device_destroy(device);
@@ -386,7 +386,7 @@ pub const WaylandClipboard = struct {
                     .parent = self,
                 };
                 
-                try self.active_write_contexts.append(context);
+                try self.active_write_contexts.append(self.allocator, context);
                 
                 _ = c.wl_data_source_add_listener(source, &source_listener, context);
                 c.wl_data_device_set_selection(self.data_device, source, 0);
@@ -434,7 +434,7 @@ pub const WaylandClipboard = struct {
                     .parent = self,
                 };
                 
-                try self.active_write_contexts.append(context);
+                try self.active_write_contexts.append(self.allocator, context);
                 
                 _ = c.zwlr_data_control_source_v1_add_listener(source, &wlr_source_listener, context);
                 c.zwlr_data_control_device_v1_set_selection(self.wlr_data_control_device, source);
@@ -496,8 +496,8 @@ pub const WaylandClipboard = struct {
     }
     
     fn readFromPipe(allocator: std.mem.Allocator, pipe_fd: c_int) ![]u8 {
-        var data_list = std.ArrayList(u8).init(allocator);
-        defer data_list.deinit();
+        var data_list = std.ArrayList(u8){};
+        defer data_list.deinit(allocator);
         
         var buffer: [4096]u8 = undefined;
         var total_read: usize = 0;
@@ -509,7 +509,7 @@ pub const WaylandClipboard = struct {
             }
             if (bytes_read == 0) break;
             
-            try data_list.appendSlice(buffer[0..@intCast(bytes_read)]);
+            try data_list.appendSlice(allocator, buffer[0..@intCast(bytes_read)]);
             total_read += @intCast(bytes_read);
         }
         
@@ -663,7 +663,7 @@ const WriteContext = struct {
     }
 };
 
-fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.C) void {
+fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, interface: [*c]const u8, version: u32) callconv(.c) void {
     _ = version;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
@@ -676,13 +676,13 @@ fn registryGlobal(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32, inter
     }
 }
 
-fn registryGlobalRemove(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32) callconv(.C) void {
+fn registryGlobalRemove(data: ?*anyopaque, registry: ?*c.wl_registry, name: u32) callconv(.c) void {
     _ = data;
     _ = registry;
     _ = name;
 }
 
-fn wlrDataDeviceDataOffer(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.C) void {
+fn wlrDataDeviceDataOffer(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.c) void {
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
@@ -699,7 +699,7 @@ fn wlrDataDeviceDataOffer(data: ?*anyopaque, device: ?*c.zwlr_data_control_devic
     _ = c.zwlr_data_control_offer_v1_add_listener(offer, &offer_listener, self);
 }
 
-fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.C) void {
+fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.c) void {
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
@@ -722,17 +722,17 @@ fn wlrDataDeviceSelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_devic
     }
 }
 
-fn wlrDataDeviceFinished(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1) callconv(.C) void {
+fn wlrDataDeviceFinished(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1) callconv(.c) void {
     _ = data; _ = device;
 }
 
-fn wlrDataDevicePrimarySelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.C) void {
+fn wlrDataDevicePrimarySelection(data: ?*anyopaque, device: ?*c.zwlr_data_control_device_v1, offer: ?*c.zwlr_data_control_offer_v1) callconv(.c) void {
     _ = data; _ = device; _ = offer;
     // Primary selection not implemented
     // TODO: check if this needs to be implemented?
 }
 
-fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, mime_type: [*c]const u8) callconv(.C) void {
+fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, mime_type: [*c]const u8) callconv(.c) void {
     _ = offer;
     
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
@@ -747,13 +747,13 @@ fn wlrDataOfferOffer(data: ?*anyopaque, offer: ?*c.zwlr_data_control_offer_v1, m
                 return;
             }
         }
-        self.available_formats.append(format) catch {};
+        self.available_formats.append(self.allocator, format) catch {};
     }
     
     self.offer_mime_types_received = true;
 }
 
-fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1, mime_type: [*c]const u8, fd: i32) callconv(.C) void {
+fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1, mime_type: [*c]const u8, fd: i32) callconv(.c) void {
     _ = source; _ = mime_type;
     
     if (data == null) {
@@ -775,13 +775,13 @@ fn wlrDataSourceSend(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1,
     _ = c.fclose(file); 
 }
 
-fn wlrDataSourceCancelled(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1) callconv(.C) void {
+fn wlrDataSourceCancelled(data: ?*anyopaque, source: ?*c.zwlr_data_control_source_v1) callconv(.c) void {
     _ = source; _ = data;
     
     c.exit(0);
 }
 
-fn dataDeviceDataOffer(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c.wl_data_offer) callconv(.C) void {
+fn dataDeviceDataOffer(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c.wl_data_offer) callconv(.c) void {
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
@@ -799,7 +799,7 @@ fn dataDeviceDataOffer(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c
     _ = c.wl_data_offer_add_listener(offer, &offer_listener, self);
 }
 
-fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c.wl_data_offer) callconv(.C) void {
+fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c.wl_data_offer) callconv(.c) void {
     _ = device;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
@@ -822,7 +822,7 @@ fn dataDeviceSelection(data: ?*anyopaque, device: ?*c.wl_data_device, offer: ?*c
     }
 }
 
-fn dataOfferOffer(data: ?*anyopaque, offer: ?*c.wl_data_offer, mime_type: [*c]const u8) callconv(.C) void {
+fn dataOfferOffer(data: ?*anyopaque, offer: ?*c.wl_data_offer, mime_type: [*c]const u8) callconv(.c) void {
     _ = offer;
     const self: *WaylandClipboard = @ptrCast(@alignCast(data));
     
@@ -837,41 +837,41 @@ fn dataOfferOffer(data: ?*anyopaque, offer: ?*c.wl_data_offer, mime_type: [*c]co
                 return;
             }
         }
-        self.available_formats.append(format) catch {};
+        self.available_formats.append(self.allocator, format) catch {};
     }
     
     self.offer_mime_types_received = true;
 }
 
-fn dataDeviceEnter(data: ?*anyopaque, device: ?*c.wl_data_device, serial: u32, surface: ?*c.wl_surface, x: c.wl_fixed_t, y: c.wl_fixed_t, offer: ?*c.wl_data_offer) callconv(.C) void {
+fn dataDeviceEnter(data: ?*anyopaque, device: ?*c.wl_data_device, serial: u32, surface: ?*c.wl_surface, x: c.wl_fixed_t, y: c.wl_fixed_t, offer: ?*c.wl_data_offer) callconv(.c) void {
     _ = data; _ = device; _ = serial; _ = surface; _ = x; _ = y; _ = offer;
 }
 
-fn dataDeviceLeave(data: ?*anyopaque, device: ?*c.wl_data_device) callconv(.C) void {
+fn dataDeviceLeave(data: ?*anyopaque, device: ?*c.wl_data_device) callconv(.c) void {
     _ = data; _ = device;
 }
 
-fn dataDeviceMotion(data: ?*anyopaque, device: ?*c.wl_data_device, time: u32, x: c.wl_fixed_t, y: c.wl_fixed_t) callconv(.C) void {
+fn dataDeviceMotion(data: ?*anyopaque, device: ?*c.wl_data_device, time: u32, x: c.wl_fixed_t, y: c.wl_fixed_t) callconv(.c) void {
     _ = data; _ = device; _ = time; _ = x; _ = y;
 }
 
-fn dataDeviceDrop(data: ?*anyopaque, device: ?*c.wl_data_device) callconv(.C) void {
+fn dataDeviceDrop(data: ?*anyopaque, device: ?*c.wl_data_device) callconv(.c) void {
     _ = data; _ = device;
 }
 
-fn dataOfferSourceActions(data: ?*anyopaque, offer: ?*c.wl_data_offer, source_actions: u32) callconv(.C) void {
+fn dataOfferSourceActions(data: ?*anyopaque, offer: ?*c.wl_data_offer, source_actions: u32) callconv(.c) void {
     _ = data; _ = offer; _ = source_actions;
 }
 
-fn dataOfferAction(data: ?*anyopaque, offer: ?*c.wl_data_offer, dnd_action: u32) callconv(.C) void {
+fn dataOfferAction(data: ?*anyopaque, offer: ?*c.wl_data_offer, dnd_action: u32) callconv(.c) void {
     _ = data; _ = offer; _ = dnd_action;
 }
 
-fn dataSourceTarget(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]const u8) callconv(.C) void {
+fn dataSourceTarget(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]const u8) callconv(.c) void {
     _ = data; _ = source; _ = mime_type;
 }
 
-fn dataSourceSend(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.C) void {
+fn dataSourceSend(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]const u8, fd: i32) callconv(.c) void {
     _ = source; _ = mime_type;
     
     if (data == null) {
@@ -893,21 +893,21 @@ fn dataSourceSend(data: ?*anyopaque, source: ?*c.wl_data_source, mime_type: [*c]
     _ = c.fclose(file); 
 }
 
-fn dataSourceCancelled(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.C) void {
+fn dataSourceCancelled(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.c) void {
     _ = source; _ = data;
     
     c.exit(0);
 }
 
-fn dataSourceDndDropPerformed(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.C) void {
+fn dataSourceDndDropPerformed(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.c) void {
     _ = data; _ = source;
 }
 
-fn dataSourceDndFinished(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.C) void {
+fn dataSourceDndFinished(data: ?*anyopaque, source: ?*c.wl_data_source) callconv(.c) void {
     _ = data; _ = source;
 }
 
-fn dataSourceAction(data: ?*anyopaque, source: ?*c.wl_data_source, dnd_action: u32) callconv(.C) void {
+fn dataSourceAction(data: ?*anyopaque, source: ?*c.wl_data_source, dnd_action: u32) callconv(.c) void {
     _ = data; _ = source; _ = dnd_action;
 }
 

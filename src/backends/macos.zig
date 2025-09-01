@@ -35,7 +35,7 @@ fn objc_msgSend_usize(receiver: ?*anyopaque, sel: *anyopaque) usize {
     return @as(usize, @intFromPtr(result));
 }
 
-const ObjectAtIndexFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, index: usize) callconv(.C) ?*anyopaque;
+const ObjectAtIndexFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, index: usize) callconv(.c) ?*anyopaque;
 
 fn objc_msgSend_objectAtIndex(receiver: ?*anyopaque, sel: *anyopaque, index: usize) ?*anyopaque {
     const msgSend = @as(ObjectAtIndexFn, @ptrCast(&objc_msgSend));
@@ -75,7 +75,7 @@ fn createNSStringFromType(type_name: []const u8, allocator: std.mem.Allocator) !
     defer allocator.free(type_name_z);
     
     const NSString = objc_getClass("NSString") orelse return null;
-    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.C) ?*anyopaque;
+    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.c) ?*anyopaque;
     const stringWithUTF8 = @as(StringWithUTF8Fn, @ptrCast(&objc_msgSend));
     
     return stringWithUTF8(NSString, sel_registerName(SELECTORS.STRING_WITH_UTF8_STRING), type_name_z.ptr);
@@ -86,7 +86,7 @@ fn createNSString(text: []const u8, allocator: std.mem.Allocator) !?*anyopaque {
     defer allocator.free(text_z);
     
     const NSString = objc_getClass("NSString") orelse return null;
-    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.C) ?*anyopaque;
+    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.c) ?*anyopaque;
     const stringWithUTF8 = @as(StringWithUTF8Fn, @ptrCast(&objc_msgSend));
     
     return stringWithUTF8(NSString, sel_registerName(SELECTORS.STRING_WITH_UTF8_STRING), text_z.ptr);
@@ -95,7 +95,7 @@ fn createNSString(text: []const u8, allocator: std.mem.Allocator) !?*anyopaque {
 fn pasteboardStringForType(pasteboard: ?*anyopaque, type_string: ?*anyopaque) ?*anyopaque {
     if (pasteboard == null or type_string == null) return null;
     
-    const StringForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, type: ?*anyopaque) callconv(.C) ?*anyopaque;
+    const StringForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, type: ?*anyopaque) callconv(.c) ?*anyopaque;
     const stringForType = @as(StringForTypeFn, @ptrCast(&objc_msgSend));
     
     return stringForType(pasteboard, sel_registerName(SELECTORS.STRING_FOR_TYPE), type_string);
@@ -104,7 +104,7 @@ fn pasteboardStringForType(pasteboard: ?*anyopaque, type_string: ?*anyopaque) ?*
 fn pasteboardSetStringForType(pasteboard: ?*anyopaque, string: ?*anyopaque, type_string: ?*anyopaque) void {
     if (pasteboard == null or string == null or type_string == null) return;
     
-    const SetStringForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, string: ?*anyopaque, type: ?*anyopaque) callconv(.C) void;
+    const SetStringForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, string: ?*anyopaque, type: ?*anyopaque) callconv(.c) void;
     const setStringForType = @as(SetStringForTypeFn, @ptrCast(&objc_msgSend));
     
     setStringForType(pasteboard, sel_registerName(SELECTORS.SET_STRING_FOR_TYPE), string, type_string);
@@ -113,7 +113,7 @@ fn pasteboardSetStringForType(pasteboard: ?*anyopaque, string: ?*anyopaque, type
 fn pasteboardSetDataForType(pasteboard: ?*anyopaque, data: ?*anyopaque, type_string: ?*anyopaque) void {
     if (pasteboard == null or data == null or type_string == null) return;
     
-    const SetDataForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, data: ?*anyopaque, type: ?*anyopaque) callconv(.C) void;
+    const SetDataForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, data: ?*anyopaque, type: ?*anyopaque) callconv(.c) void;
     const setDataForType = @as(SetDataForTypeFn, @ptrCast(&objc_msgSend));
     
     setDataForType(pasteboard, sel_registerName(SELECTORS.SET_DATA_FOR_TYPE), data, type_string);
@@ -127,7 +127,7 @@ fn pasteboardClearContents(pasteboard: ?*anyopaque) void {
 fn getDataForType(pasteboard: ?*anyopaque, type_string: ?*anyopaque) ?*anyopaque {
     if (pasteboard == null or type_string == null) return null;
     
-    const DataForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, type: ?*anyopaque) callconv(.C) ?*anyopaque;
+    const DataForTypeFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, type: ?*anyopaque) callconv(.c) ?*anyopaque;
     const dataForType = @as(DataForTypeFn, @ptrCast(&objc_msgSend));
     
     return dataForType(pasteboard, sel_registerName(SELECTORS.DATA_FOR_TYPE), type_string);
@@ -150,7 +150,7 @@ fn canCreateImageFromData(data: ?*anyopaque) bool {
     const image = objc_msgSend(NSImage, sel_registerName(SELECTORS.ALLOC));
     if (image == null) return false;
     
-    const InitWithDataFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, data: ?*anyopaque) callconv(.C) ?*anyopaque;
+    const InitWithDataFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, data: ?*anyopaque) callconv(.c) ?*anyopaque;
     const initWithData = @as(InitWithDataFn, @ptrCast(&objc_msgSend));
     
     const initialized = initWithData(image, sel_registerName(SELECTORS.INIT_WITH_DATA), data);
@@ -229,7 +229,7 @@ fn tryReadImageType(pasteboard: ?*anyopaque, type_name: []const u8, allocator: s
     
     const NSString = objc_getClass("NSString") orelse return clipboard.ClipboardError.NoData;
     
-    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.C) ?*anyopaque;
+    const StringWithUTF8Fn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, str: [*:0]const u8) callconv(.c) ?*anyopaque;
     const stringWithUTF8 = @as(StringWithUTF8Fn, @ptrCast(&objc_msgSend));
     
     const type_string = stringWithUTF8(NSString, sel_registerName(SELECTORS.STRING_WITH_UTF8_STRING), type_name_z.ptr);
@@ -406,7 +406,7 @@ pub const ClipboardBackend = struct {
             return clipboard.ClipboardError.WriteFailed;
         };
         
-        const DataWithBytesFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, bytes: [*]const u8, length: usize) callconv(.C) ?*anyopaque;
+        const DataWithBytesFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, bytes: [*]const u8, length: usize) callconv(.c) ?*anyopaque;
         const dataWithBytes = @as(DataWithBytesFn, @ptrCast(&objc_msgSend));
         const data_obj = dataWithBytes(NSData, sel_registerName("dataWithBytes:length:"), data.ptr, data.len) orelse {
             return clipboard.ClipboardError.WriteFailed;
@@ -430,7 +430,7 @@ pub const ClipboardBackend = struct {
             return clipboard.ClipboardError.WriteFailed;
         };
         
-        const DataWithBytesFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, bytes: [*]const u8, length: usize) callconv(.C) ?*anyopaque;
+        const DataWithBytesFn = *const fn (receiver: ?*anyopaque, sel: *anyopaque, bytes: [*]const u8, length: usize) callconv(.c) ?*anyopaque;
         const dataWithBytes = @as(DataWithBytesFn, @ptrCast(&objc_msgSend));
         const data_obj = dataWithBytes(NSData, sel_registerName("dataWithBytes:length:"), data.ptr, data.len) orelse {
             return clipboard.ClipboardError.WriteFailed;
@@ -495,18 +495,18 @@ pub fn getAvailableClipboardFormats(allocator: std.mem.Allocator) ![]clipboard.C
     var backend = try ClipboardBackend.init(allocator);
     defer backend.deinit();
     
-    var available = std.ArrayList(clipboard.ClipboardFormat).init(allocator);
+    var available = std.ArrayList(clipboard.ClipboardFormat){};
     
     const formats = [_]clipboard.ClipboardFormat{ .text, .image, .html, .rtf };
     
     for (formats) |format| {
         if (backend.read(format)) |data| {
             data.deinit();
-            try available.append(format);
+            try available.append(allocator, format);
         } else |_| {}
     }
     
-    return available.toOwnedSlice();
+    return available.toOwnedSlice(allocator);
 }
 
 

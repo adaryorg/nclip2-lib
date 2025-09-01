@@ -1,23 +1,26 @@
 const std = @import("std");
 
-fn addPlatformDependencies(step: *std.Build.Step.Compile, target: std.Build.ResolvedTarget, b: *std.Build) void {
+fn addPlatformDependencies(module: *std.Build.Module, target: std.Build.ResolvedTarget, b: *std.Build) void {
     // Platform-specific linking and sources
     switch (target.result.os.tag) {
         .linux => {
             // Add wlr-data-control protocol implementation for Linux only
-            step.addCSourceFile(.{ .file = b.path("src/wlr_protocol.c") });
-            step.addIncludePath(b.path("include"));
-            step.linkLibC();
-            step.linkSystemLibrary("wayland-client");
-            step.linkSystemLibrary("X11");
+            module.addCSourceFile(.{ 
+                .file = b.path("src/wlr_protocol.c"),
+                .flags = &.{},
+            });
+            module.addIncludePath(b.path("include"));
+            module.link_libc = true;
+            module.linkSystemLibrary("wayland-client", .{});
+            module.linkSystemLibrary("X11", .{});
         },
         .macos => {
-            step.linkLibC();
-            step.linkFramework("AppKit");
-            step.linkFramework("Foundation");
+            module.link_libc = true;
+            module.linkFramework("AppKit", .{});
+            module.linkFramework("Foundation", .{});
         },
         else => {
-            step.linkLibC();
+            module.link_libc = true;
         },
     }
 }
@@ -29,96 +32,96 @@ pub fn build(b: *std.Build) void {
     // Create the clipboard library module
     const clipboard_mod = b.addModule("clipboard", .{
         .root_source_file = b.path("src/clipboard.zig"),
-    });
-    
-    // Add include path for wlr protocol headers (Linux only)
-    if (target.result.os.tag == .linux) {
-        clipboard_mod.addIncludePath(b.path("include"));
-    }
-
-    // Library for static linking
-    const lib = b.addStaticLibrary(.{
-        .name = "nclip2-clipboard",
-        .root_source_file = b.path("src/clipboard.zig"),
         .target = target,
         .optimize = optimize,
     });
     
-    addPlatformDependencies(lib, target, b);
-
-    b.installArtifact(lib);
+    // Add platform dependencies to the module
+    addPlatformDependencies(clipboard_mod, target, b);
 
     // Wayland read example
     const wayland_read_exe = b.addExecutable(.{
         .name = "wayland-read",
-        .root_source_file = b.path("examples/wayland_read.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/wayland_read.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "clipboard", .module = clipboard_mod },
+            },
+        }),
     });
-    
-    wayland_read_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(wayland_read_exe, target, b);
     b.installArtifact(wayland_read_exe);
 
 
     // Wayland write example
     const wayland_write_exe = b.addExecutable(.{
         .name = "wayland-write",
-        .root_source_file = b.path("examples/wayland_write.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/wayland_write.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "clipboard", .module = clipboard_mod },
+            },
+        }),
     });
-    
-    wayland_write_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(wayland_write_exe, target, b);
     b.installArtifact(wayland_write_exe);
 
     // X11 read example
     const x11_read_exe = b.addExecutable(.{
         .name = "x11-read",
-        .root_source_file = b.path("examples/x11_read.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/x11_read.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "clipboard", .module = clipboard_mod },
+            },
+        }),
     });
-    
-    x11_read_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(x11_read_exe, target, b);
     b.installArtifact(x11_read_exe);
 
     // X11 write example
     const x11_write_exe = b.addExecutable(.{
         .name = "x11-write",
-        .root_source_file = b.path("examples/x11_write.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/x11_write.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "clipboard", .module = clipboard_mod },
+            },
+        }),
     });
-    
-    x11_write_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(x11_write_exe, target, b);
     b.installArtifact(x11_write_exe);
 
     // macOS read example
     const macos_read_exe = b.addExecutable(.{
         .name = "macos-read",
-        .root_source_file = b.path("examples/macos_read.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/macos_read.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "clipboard", .module = clipboard_mod },
+            },
+        }),
     });
-    
-    macos_read_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(macos_read_exe, target, b);
     b.installArtifact(macos_read_exe);
 
     // macOS write example
     const macos_write_exe = b.addExecutable(.{
         .name = "macos-write",
-        .root_source_file = b.path("examples/macos_write.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/macos_write.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "clipboard", .module = clipboard_mod },
+            },
+        }),
     });
-    
-    macos_write_exe.root_module.addImport("clipboard", clipboard_mod);
-    addPlatformDependencies(macos_write_exe, target, b);
     b.installArtifact(macos_write_exe);
 
 
@@ -158,12 +161,12 @@ pub fn build(b: *std.Build) void {
 
     // Tests
     const lib_tests = b.addTest(.{
-        .root_source_file = b.path("src/clipboard.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/clipboard.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
-    
-    addPlatformDependencies(lib_tests, target, b);
 
     const run_lib_tests = b.addRunArtifact(lib_tests);
     const test_step = b.step("test", "Run library tests");

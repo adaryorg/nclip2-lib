@@ -26,7 +26,7 @@ pub fn main() !void {
                     std.log.info("[{}] Error reading clipboard: {}", .{ count, err });
                 },
             }
-            std.time.sleep(1000 * std.time.ns_per_ms);
+            std.Thread.sleep(1000 * std.time.ns_per_ms);
             continue;
         };
         defer data.deinit();
@@ -51,6 +51,6 @@ pub fn main() !void {
             },
         }
         
-        std.time.sleep(1000 * std.time.ns_per_ms);
+        std.Thread.sleep(1000 * std.time.ns_per_ms);
     }
 }
